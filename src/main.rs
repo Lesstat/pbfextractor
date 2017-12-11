@@ -1,4 +1,5 @@
 extern crate osmpbfreader;
+extern crate byteorder;
 
 mod pbf;
 
@@ -11,14 +12,17 @@ fn main() {
 
     let mut a = args();
     a.next();
-    let input = a.next().expect("No input file given");
+    let pbf_input = a.next().expect("No pbf input file given");
+    let srtm_input = a.next().expect("No srtm input file given");
     let output = a.next().expect("No output file given");
 
 
     let f = File::create(&output).unwrap();
     let mut b = BufWriter::new(f);
 
-    let (nodes, edges) = pbf::load_graph(input);
+    let l = pbf::Loader::new(pbf_input, srtm_input);
+
+    let (nodes, edges) = l.load_graph();
 
     println!("Writing to: {}", output);
 
@@ -31,11 +35,12 @@ fn main() {
     for (i, node) in nodes.iter().enumerate() {
         write!(
             &mut b,
-            "{} {} {} {} 0\n",
+            "{} {} {} {} {} 0\n",
             i,
             node.osm_id,
             node.lat,
-            node.long
+            node.long,
+            node.height,
         ).unwrap();
     }
     for edge in &edges {

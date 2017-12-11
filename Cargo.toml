@@ -5,3 +5,4 @@ authors = ["Florian Barth <florianbarth@gmx.de>"]
 
 [dependencies]
 osmpbfreader = "*"
+byteorder = "*"
