@@ -69,7 +69,7 @@ impl Loader {
             }
         }
 
-        println!("Amount of Edges {}", edges.len());
+        println!("Calculating distances and height differences on edges ");
 
         self.rename_node_ids_and_calculate_distance(&mut nodes, &mut edges);
 
@@ -207,7 +207,7 @@ impl Loader {
         let north = self.f64_to_whole_number(lat);
         let east = self.f64_to_whole_number(lng);
 
-        let file_name = format!("/N{:02}E{:03}.hgt", north, east - 1);
+        let file_name = format!("/N{:02}E{:03}.hgt", north, east);
 
 
         let mut srtm_file = String::new();
@@ -217,8 +217,6 @@ impl Loader {
 
         let lat_offset = 3601 - ((lat - north as f64) / second).round() as u64;
         let long_offset = ((lng - east as f64) / second).round() as u64;
-
-        println!("lat off: {} lng off: {} ", lat_offset, long_offset);
 
         f.seek(SeekFrom::Start(
             ((lat_offset - 1) * 3601 + (long_offset)) * 2,
@@ -290,16 +288,4 @@ impl EdgeInfo {
             unsuitability: unsuitability,
         }
     }
-}
-
-#[test]
-fn ueitan() {
-    let l = Loader::new("".to_owned(), "/home/flo/workspaces/data/srtm".to_owned());
-
-
-    let h = l.srtm(48.0, 9.0);
-    assert_eq!(738, h);
-
-    let h = l.srtm(48.6524704, 9.3334938);
-    assert_eq!(352, h);
 }
