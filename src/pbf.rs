@@ -1,6 +1,7 @@
 use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 
 use std::fs::File;
+use std::cmp::Ordering;
 
 pub struct Loader {
     pbf_path: String,
@@ -72,6 +73,53 @@ impl Loader {
         println!("Calculating distances and height differences on edges ");
 
         self.rename_node_ids_and_calculate_distance(&mut nodes, &mut edges);
+
+        println!("Deleting duplicate edges");
+        let edge_count = edges.len();
+
+        edges.sort_by(|e1, e2| {
+            let mut result = e1.source.cmp(&e2.source);
+            if result == Ordering::Equal {
+                result = e1.dest.cmp(&e2.dest);
+            }
+            if result == Ordering::Equal {
+                result = e1.height.cmp(&e2.height);
+            }
+            if result == Ordering::Equal {
+                result = e1.unsuitability.cmp(&e2.unsuitability);
+            }
+            if result == Ordering::Equal {
+                let partial_result = e1.length.partial_cmp(&e2.length);
+                result = if partial_result.is_some() {
+                    partial_result.unwrap()
+                } else {
+                    Ordering::Equal
+                }
+            }
+            return result;
+        });
+
+        edges.dedup();
+
+        println!("Removed {} duplicated edges", edge_count - edges.len());
+
+        let mut indices = ::std::collections::VecDeque::new();
+        for i in 1..edges.len() {
+            let first = &edges[i - 1];
+            let second = &edges[i];
+            if !(first.source == second.source && first.dest == second.dest) {
+                continue;
+            }
+            if first.length <= second.length && first.height <= second.height &&
+                first.unsuitability <= second.unsuitability
+            {
+                indices.push_front(i);
+            }
+        }
+        println!("removing {} dominated edges", indices.len());
+        for i in indices {
+            edges.remove(i);
+        }
 
         return (nodes, edges);
     }
@@ -292,5 +340,31 @@ impl EdgeInfo {
             height: height,
             unsuitability: unsuitability,
         }
+    }
+}
+
+impl PartialEq for EdgeInfo {
+    fn eq(&self, rhs: &Self) -> bool {
+        let mut equality = self.source == rhs.source && self.dest == rhs.dest &&
+            self.height == rhs.height &&
+            self.unsuitability == rhs.unsuitability;
+        if equality {
+
+            let partial_ord = self.length.partial_cmp(&rhs.length);
+            equality = match partial_ord {
+                Some(Ordering::Equal) => true,
+                Some(_) => false,
+                None => {
+                    println!("PartialOrd evals to None");
+                    true
+                }
+
+            }
+
+        }
+
+
+
+        equality
     }
 }
