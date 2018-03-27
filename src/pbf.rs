@@ -50,7 +50,7 @@ impl Loader {
                             node.0 as NodeId,
                             w.nodes[index + 1].0 as NodeId,
                             1.1, // calculating length happens inside the graph
-                            0,
+                            0.0,
                             unsuitability,
                         );
                         edges.push(edge);
@@ -59,7 +59,7 @@ impl Loader {
                                 w.nodes[index + 1].0 as NodeId,
                                 node.0 as NodeId,
                                 1.1, // calculating length happens inside the graph
-                                0,
+                                0.0,
                                 unsuitability,
                             );
                             edges.push(edge);
@@ -83,10 +83,15 @@ impl Loader {
                 result = e1.dest.cmp(&e2.dest);
             }
             if result == Ordering::Equal {
-                result = e1.height.cmp(&e2.height);
+                result = e1.unsuitability.cmp(&e2.unsuitability);
             }
             if result == Ordering::Equal {
-                result = e1.unsuitability.cmp(&e2.unsuitability);
+                let partial_result = e1.height.partial_cmp(&e2.height);
+                result = if partial_result.is_some() {
+                    partial_result.unwrap()
+                } else {
+                    Ordering::Equal
+                }
             }
             if result == Ordering::Equal {
                 let partial_result = e1.length.partial_cmp(&e2.length);
@@ -128,35 +133,35 @@ impl Loader {
         if way.tags.get("cycleway").is_some() ||
             way.tags.get("bicycle") == Some(&"yes".to_string())
         {
-            return 0;
+            return 1;
         }
 
         let side_walk: Option<&str> = way.tags.get("sidewalk").map(String::as_ref);
         if side_walk == Some("yes") {
-            return 1;
+            return 2;
         }
 
         let street_type = way.tags.get("highway").map(String::as_ref);
         match street_type {
-            Some("primary") => 5,
-            Some("primary_link") => 5,
-            Some("secondary") => 4,
-            Some("secondary_link") => 4,
-            Some("tertiary") => 3,
-            Some("tertiary_link") => 3,
-            Some("road") => 3,
-            Some("bridleway") => 3,
-            Some("unclassified") => 2,
-            Some("residential") => 2,
-            Some("traffic_island") => 2,
-            Some("living_street") => 1,
-            Some("service") => 1,
-            Some("track") => 1,
-            Some("platform") => 1,
-            Some("pedestrian") => 1,
-            Some("path") => 1,
-            Some("footway") => 1,
-            Some("cycleway") => 0,
+            Some("primary") => 6,
+            Some("primary_link") => 6,
+            Some("secondary") => 5,
+            Some("secondary_link") => 5,
+            Some("tertiary") => 4,
+            Some("tertiary_link") => 4,
+            Some("road") => 4,
+            Some("bridleway") => 4,
+            Some("unclassified") => 3,
+            Some("residential") => 3,
+            Some("traffic_island") => 3,
+            Some("living_street") => 2,
+            Some("service") => 2,
+            Some("track") => 2,
+            Some("platform") => 2,
+            Some("pedestrian") => 2,
+            Some("path") => 2,
+            Some("footway") => 2,
+            Some("cycleway") => 1,
             _ => 10,
         }
 
@@ -228,11 +233,13 @@ impl Loader {
             e.dest = dest_id;
             e.length = self.haversine_distance(source, dest);
             let height_difference = source.height - dest.height;
-            e.height = if height_difference > 0 {
-                height_difference
+            e.height = if height_difference > 0.0 {
+                height_difference * e.length.round()
             } else {
-                0
+                0.01 * e.length.round()
             };
+
+            e.unsuitability *= e.length.round() as usize;
         }
 
     }
@@ -281,7 +288,7 @@ impl Loader {
             lng
         ));
 
-        h
+        h as f64
     }
 
     fn f64_to_whole_number(&self, x: f64) -> u64 {
@@ -295,7 +302,7 @@ pub type OsmNodeId = usize;
 pub type Latitude = f64;
 pub type Longitude = f64;
 pub type Length = f64;
-pub type Height = i16;
+pub type Height = f64;
 pub type Unsuitability = usize;
 
 pub struct NodeInfo {
