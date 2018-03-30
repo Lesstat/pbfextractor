@@ -83,7 +83,12 @@ impl Loader {
                 result = e1.dest.cmp(&e2.dest);
             }
             if result == Ordering::Equal {
-                result = e1.unsuitability.cmp(&e2.unsuitability);
+                let partial_result = e1.unsuitability.partial_cmp(&e2.unsuitability);
+                result = if partial_result.is_some() {
+                    partial_result.unwrap()
+                } else {
+                    Ordering::Equal
+                }
             }
             if result == Ordering::Equal {
                 let partial_result = e1.height.partial_cmp(&e2.height);
@@ -133,36 +138,36 @@ impl Loader {
         if way.tags.get("cycleway").is_some() ||
             way.tags.get("bicycle") == Some(&"yes".to_string())
         {
-            return 1;
+            return 0.5;
         }
 
         let side_walk: Option<&str> = way.tags.get("sidewalk").map(String::as_ref);
         if side_walk == Some("yes") {
-            return 2;
+            return 0.75;
         }
 
         let street_type = way.tags.get("highway").map(String::as_ref);
         match street_type {
-            Some("primary") => 6,
-            Some("primary_link") => 6,
-            Some("secondary") => 5,
-            Some("secondary_link") => 5,
-            Some("tertiary") => 4,
-            Some("tertiary_link") => 4,
-            Some("road") => 4,
-            Some("bridleway") => 4,
-            Some("unclassified") => 3,
-            Some("residential") => 3,
-            Some("traffic_island") => 3,
-            Some("living_street") => 2,
-            Some("service") => 2,
-            Some("track") => 2,
-            Some("platform") => 2,
-            Some("pedestrian") => 2,
-            Some("path") => 2,
-            Some("footway") => 2,
-            Some("cycleway") => 1,
-            _ => 10,
+            Some("primary") => 1.75,
+            Some("primary_link") => 1.75,
+            Some("secondary") => 1.5,
+            Some("secondary_link") => 1.5,
+            Some("tertiary") => 1.25,
+            Some("tertiary_link") => 1.25,
+            Some("road") => 1.25,
+            Some("bridleway") => 1.25,
+            Some("unclassified") => 1.0,
+            Some("residential") => 1.0,
+            Some("traffic_island") => 1.0,
+            Some("living_street") => 0.75,
+            Some("service") => 0.75,
+            Some("track") => 0.75,
+            Some("platform") => 0.75,
+            Some("pedestrian") => 0.75,
+            Some("path") => 0.75,
+            Some("footway") => 0.75,
+            Some("cycleway") => 0.5,
+            _ => 2.0,
         }
 
     }
@@ -234,12 +239,12 @@ impl Loader {
             e.length = self.haversine_distance(source, dest);
             let height_difference = source.height - dest.height;
             e.height = if height_difference > 0.0 {
-                height_difference * e.length.round()
+                height_difference
             } else {
-                0.01 * e.length.round()
+                1.0
             };
 
-            e.unsuitability *= e.length.round() as usize;
+            e.unsuitability *= e.length;
         }
 
     }
@@ -288,7 +293,7 @@ impl Loader {
             lng
         ));
 
-        h as f64
+        h as f64 * 10.0
     }
 
     fn f64_to_whole_number(&self, x: f64) -> u64 {
@@ -303,7 +308,7 @@ pub type Latitude = f64;
 pub type Longitude = f64;
 pub type Length = f64;
 pub type Height = f64;
-pub type Unsuitability = usize;
+pub type Unsuitability = f64;
 
 pub struct NodeInfo {
     pub osm_id: OsmNodeId,
