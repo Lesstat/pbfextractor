@@ -237,7 +237,7 @@ impl Loader {
             e.source = source_id;
             e.dest = dest_id;
             e.length = self.haversine_distance(source, dest);
-            let height_difference = source.height - dest.height;
+            let height_difference = dest.height - source.height;
             e.height = if height_difference > 0.0 {
                 height_difference
             } else {
