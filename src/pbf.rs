@@ -17,8 +17,8 @@
 */
 use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 
-use std::fs::File;
 use std::cmp::Ordering;
+use std::fs::File;
 
 pub struct Loader {
     pbf_path: String,
@@ -39,12 +39,14 @@ impl Loader {
         let fs = File::open(&self.pbf_path).unwrap();
         let mut reader = OsmPbfReader::new(fs);
         let obj_map = reader
-            .get_objs_and_deps(|obj| obj.tags().contains_key("highway"))
+            .get_objs_and_deps(|obj| {
+                obj.tags().contains_key("highway") || obj.tags().contains("route", "bicycle")
+            })
             .unwrap();
 
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
-        for (_, obj) in obj_map {
+        for (_, obj) in &obj_map {
             match obj {
                 OsmObj::Node(node) => {
                     let lat = (node.decimicro_lat as f64) / 10_000_000.0;
@@ -60,30 +62,19 @@ impl Loader {
                     if self.is_not_for_bicycle(&w) {
                         continue;
                     }
-                    let unsuitability = self.determine_unsuitability(&w);
-                    let is_one_way = self.is_one_way(&w);
-                    for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
-                        let edge = EdgeInfo::new(
-                            node.0 as NodeId,
-                            w.nodes[index + 1].0 as NodeId,
-                            1.1, // calculating length happens inside the graph
-                            0.0,
-                            unsuitability,
-                        );
-                        edges.push(edge);
-                        if !is_one_way {
-                            let edge = EdgeInfo::new(
-                                w.nodes[index + 1].0 as NodeId,
-                                node.0 as NodeId,
-                                1.1, // calculating length happens inside the graph
-                                0.0,
-                                unsuitability,
-                            );
-                            edges.push(edge);
+                    self.process_way(&w, &mut edges);
+                }
+                OsmObj::Relation(r) => {
+                    if !r.tags.contains("route", "bicycle") {
+                        continue;
+                    }
+                    for reference in &r.refs {
+                        let thing = &obj_map.get(&reference.member);
+                        if let Some(OsmObj::Way(w)) = thing {
+                            self.process_way(&w, &mut edges);
                         }
                     }
                 }
-                _ => (),
             }
         }
 
@@ -137,8 +128,8 @@ impl Loader {
             if !(first.source == second.source && first.dest == second.dest) {
                 continue;
             }
-            if first.length <= second.length && first.height <= second.height &&
-                first.unsuitability <= second.unsuitability
+            if first.length <= second.length && first.height <= second.height
+                && first.unsuitability <= second.unsuitability
             {
                 indices.push_front(i);
             }
@@ -152,60 +143,85 @@ impl Loader {
     }
 
     fn determine_unsuitability(&self, way: &Way) -> Unsuitability {
-        if way.tags.get("cycleway").is_some() ||
-            way.tags.get("bicycle") == Some(&"yes".to_string())
+        let bicycle_tag = way.tags.get("bicycle");
+        if way.tags.get("cycleway").is_some()
+            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
         {
-            return 0.5;
+            return 0.0;
         }
 
         let side_walk: Option<&str> = way.tags.get("sidewalk").map(String::as_ref);
         if side_walk == Some("yes") {
-            return 0.75;
+            return 1.0;
         }
 
         let street_type = way.tags.get("highway").map(String::as_ref);
         match street_type {
-            Some("primary") => 1.75,
-            Some("primary_link") => 1.75,
-            Some("secondary") => 1.5,
-            Some("secondary_link") => 1.5,
-            Some("tertiary") => 1.25,
-            Some("tertiary_link") => 1.25,
-            Some("road") => 1.25,
-            Some("bridleway") => 1.25,
-            Some("unclassified") => 1.0,
-            Some("residential") => 1.0,
-            Some("traffic_island") => 1.0,
-            Some("living_street") => 0.75,
-            Some("service") => 0.75,
-            Some("track") => 0.75,
-            Some("platform") => 0.75,
-            Some("pedestrian") => 0.75,
-            Some("path") => 0.75,
-            Some("footway") => 0.75,
-            Some("cycleway") => 0.5,
-            _ => 2.0,
+            Some("primary") => 5.0,
+            Some("primary_link") => 5.0,
+            Some("secondary") => 4.0,
+            Some("secondary_link") => 4.0,
+            Some("tertiary") => 3.0,
+            Some("tertiary_link") => 3.0,
+            Some("road") => 3.0,
+            Some("bridleway") => 3.0,
+            Some("unclassified") => 2.0,
+            Some("residential") => 2.0,
+            Some("traffic_island") => 2.0,
+            Some("living_street") => 1.0,
+            Some("service") => 1.0,
+            Some("track") => 1.0,
+            Some("platform") => 1.0,
+            Some("pedestrian") => 1.0,
+            Some("path") => 1.0,
+            Some("footway") => 1.0,
+            Some("cycleway") => 0.0,
+            _ => 6.0,
         }
-
     }
 
+    fn process_way(&self, w: &Way, edges: &mut Vec<EdgeInfo>) {
+        let unsuitability = self.determine_unsuitability(&w);
+        let is_one_way = self.is_one_way(&w);
+        for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
+            let edge = EdgeInfo::new(
+                node.0 as NodeId,
+                w.nodes[index + 1].0 as NodeId,
+                1.1, // calculating length happens inside the graph
+                0.0,
+                unsuitability,
+            );
+            edges.push(edge);
+            if !is_one_way {
+                let edge = EdgeInfo::new(
+                    w.nodes[index + 1].0 as NodeId,
+                    node.0 as NodeId,
+                    1.1, // calculating length happens inside the graph
+                    0.0,
+                    unsuitability,
+                );
+                edges.push(edge);
+            }
+        }
+    }
     fn is_one_way(&self, way: &Way) -> bool {
         let one_way = way.tags.get("oneway").and_then(|s| s.parse().ok());
         match one_way {
             Some(rule) => rule,
-            None => {
-                match way.tags.get("highway").map(|h| h == "motorway") {
-                    Some(rule) => rule,
-                    None => false,
-                }
-            }
+            None => match way.tags.get("highway").map(|h| h == "motorway") {
+                Some(rule) => rule,
+                None => false,
+            },
         }
     }
 
     fn is_not_for_bicycle(&self, way: &Way) -> bool {
-
-        if way.tags.get("cycleway").is_some() ||
-            way.tags.get("bicycle") == Some(&"yes".to_string())
+        let bicycle_tag = way.tags.get("bicycle");
+        if bicycle_tag == Some(&"no".to_string()) {
+            return true;
+        }
+        if way.tags.get("cycleway").is_some()
+            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
         {
             return false;
         }
@@ -220,24 +236,20 @@ impl Loader {
             return false;
         }
         match street_type {
-            Some("motorway") |
-            Some("motorway_link") |
-            Some("trunk") |
-            Some("trunk_link") |
-            Some("proposed") |
-            Some("path") |
-            Some("footway") |
-            Some("steps") |
-            Some("elevator") |
-            Some("corridor") |
-            Some("raceway") |
-            Some("rest_area") |
-            Some("construction") => true,
+            Some("motorway")
+            | Some("motorway_link")
+            | Some("trunk")
+            | Some("trunk_link")
+            | Some("proposed")
+            | Some("steps")
+            | Some("elevator")
+            | Some("corridor")
+            | Some("raceway")
+            | Some("rest_area")
+            | Some("construction") => true,
             _ => false,
         }
-
     }
-
 
     fn rename_node_ids_and_calculate_distance(
         &self,
@@ -258,12 +270,9 @@ impl Loader {
             e.height = if height_difference > 0.0 {
                 height_difference
             } else {
-                1.0
+                0.0
             };
-
-            e.unsuitability *= e.length;
         }
-
     }
 
     /// Calculate the haversine distance. Adapted from https://github.com/georust/rust-geo
@@ -274,15 +283,15 @@ impl Loader {
         let theta2 = b.lat.to_radians();
         let delta_theta = (b.lat - a.lat).to_radians();
         let delta_lambda = (b.long - a.long).to_radians();
-        let a = (delta_theta / 2.0).sin().powi(2) +
-            theta1.cos() * theta2.cos() * (delta_lambda / 2.0).sin().powi(2);
+        let a = (delta_theta / 2.0).sin().powi(2)
+            + theta1.cos() * theta2.cos() * (delta_lambda / 2.0).sin().powi(2);
         let c = 2.0 * a.sqrt().asin();
         EARTH_RADIUS * c
     }
 
     fn srtm(&self, lat: Latitude, lng: Longitude) -> Height {
+        use byteorder::{BigEndian, ReadBytesExt};
         use std::io::{Seek, SeekFrom};
-        use byteorder::{ReadBytesExt, BigEndian};
 
         let second = 1.0 / 3600.0;
 
@@ -290,7 +299,6 @@ impl Loader {
         let east = self.f64_to_whole_number(lng);
 
         let file_name = format!("/N{:02}E{:03}.hgt", north, east);
-
 
         let mut srtm_file = String::new();
         srtm_file.push_str(self.srtm_path.as_ref());
@@ -304,11 +312,8 @@ impl Loader {
             ((lat_offset - 1) * 3601 + (long_offset)) * 2,
         )).unwrap();
 
-        let h = f.read_i16::<BigEndian>().expect(&format!(
-            "Reading failed at {}, {}",
-            lat,
-            lng
-        ));
+        let h = f.read_i16::<BigEndian>()
+            .expect(&format!("Reading failed at {}, {}", lat, lng));
 
         h as f64 * 10.0
     }
@@ -317,7 +322,6 @@ impl Loader {
         x.trunc() as u64
     }
 }
-
 
 pub type NodeId = usize;
 pub type OsmNodeId = usize;
@@ -361,7 +365,6 @@ impl EdgeInfo {
         height: Height,
         unsuitability: Unsuitability,
     ) -> EdgeInfo {
-
         EdgeInfo {
             source: source,
             dest: dest,
@@ -374,11 +377,10 @@ impl EdgeInfo {
 
 impl PartialEq for EdgeInfo {
     fn eq(&self, rhs: &Self) -> bool {
-        let mut equality = self.source == rhs.source && self.dest == rhs.dest &&
-            self.height == rhs.height &&
-            self.unsuitability == rhs.unsuitability;
+        let mut equality = self.source == rhs.source && self.dest == rhs.dest
+            && self.height == rhs.height
+            && self.unsuitability == rhs.unsuitability;
         if equality {
-
             let partial_ord = self.length.partial_cmp(&rhs.length);
             equality = match partial_ord {
                 Some(Ordering::Equal) => true,
@@ -387,12 +389,8 @@ impl PartialEq for EdgeInfo {
                     println!("PartialOrd evals to None");
                     true
                 }
-
             }
-
         }
-
-
 
         equality
     }
