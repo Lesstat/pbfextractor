@@ -16,27 +16,40 @@
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-extern crate osmpbfreader;
 extern crate byteorder;
+extern crate osmpbfreader;
 
 mod pbf;
 
-use std::fs::File;
-use std::io::{Write, BufWriter};
-use std::time::SystemTime;
 use std::env::args;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::time::SystemTime;
 
 fn main() {
-
     let mut a = args();
     a.next();
     let pbf_input = a.next().expect("No pbf input file given");
     let srtm_input = a.next().expect("No srtm input file given");
     let output = a.next().expect("No output file given");
 
+    let mut complete_output = output.clone();
+    complete_output.push_str(".complete");
 
-    let f = File::create(&output).unwrap();
-    let mut b = BufWriter::new(f);
+    let mut graph_output = output.clone();
+    graph_output.push_str(".graph");
+
+    let mut metric_output = output.clone();
+    metric_output.push_str(".metric");
+
+    let complete_f = File::create(&complete_output).unwrap();
+    let mut complete_b = BufWriter::new(complete_f);
+
+    let graph_f = File::create(&graph_output).unwrap();
+    let mut graph_b = BufWriter::new(graph_f);
+
+    let metric_f = File::create(&metric_output).unwrap();
+    let mut metric_b = BufWriter::new(metric_f);
 
     let l = pbf::Loader::new(pbf_input, srtm_input);
 
@@ -44,35 +57,43 @@ fn main() {
 
     println!("Writing to: {}", output);
 
-    write!(&mut b, "# Build by: pbfextractor\n").unwrap();
-    write!(&mut b, "# Build on: {:?}\n", SystemTime::now()).unwrap();
-    write!(&mut b, "\n").unwrap();
-    write!(&mut b, "{}\n", nodes.len()).unwrap();
-    write!(&mut b, "{}\n", edges.len()).unwrap();
+    write!(&mut complete_b, "# Build by: pbfextractor\n").unwrap();
+    write!(&mut complete_b, "# Build on: {:?}\n", SystemTime::now()).unwrap();
+    write!(&mut complete_b, "\n").unwrap();
+
+    write!(&mut complete_b, "{}\n", nodes.len()).unwrap();
+    write!(&mut complete_b, "{}\n", edges.len()).unwrap();
+
+    write!(&mut graph_b, "{}\n", nodes.len()).unwrap();
+    write!(&mut graph_b, "{}\n", edges.len()).unwrap();
 
     for (i, node) in nodes.iter().enumerate() {
         write!(
-            &mut b,
+            &mut graph_b,
             "{} {} {} {} {} 0\n",
-            i,
-            node.osm_id,
-            node.lat,
-            node.long,
-            node.height,
+            i, node.osm_id, node.lat, node.long, node.height,
+        ).unwrap();
+        write!(
+            &mut complete_b,
+            "{} {} {} {} {} 0\n",
+            i, node.osm_id, node.lat, node.long, node.height,
         ).unwrap();
     }
     for edge in &edges {
+        write!(&mut graph_b, "{} {}\n", edge.source, edge.dest,).unwrap();
         write!(
-            &mut b,
+            &mut metric_b,
+            "{} {} {}\n",
+            edge.length, edge.height, edge.unsuitability
+        ).unwrap();
+        write!(
+            &mut complete_b,
             "{} {} {} {} {} -1 -1\n",
-            edge.source,
-            edge.dest,
-            edge.length,
-            edge.height,
-            edge.unsuitability
+            edge.source, edge.dest, edge.length, edge.height, edge.unsuitability
         ).unwrap();
     }
 
-    b.flush().unwrap();
-
+    graph_b.flush().unwrap();
+    metric_b.flush().unwrap();
+    complete_b.flush().unwrap();
 }
