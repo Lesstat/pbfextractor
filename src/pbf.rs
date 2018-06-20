@@ -62,7 +62,7 @@ impl Loader {
                     if self.is_not_for_bicycle(&w) {
                         continue;
                     }
-                    self.process_way(&w, &mut edges);
+                    self.process_way(&w, &mut edges, false);
                 }
                 OsmObj::Relation(r) => {
                     if !r.tags.contains("route", "bicycle") {
@@ -71,7 +71,7 @@ impl Loader {
                     for reference in &r.refs {
                         let thing = &obj_map.get(&reference.member);
                         if let Some(OsmObj::Way(w)) = thing {
-                            self.process_way(&w, &mut edges);
+                            self.process_way(&w, &mut edges, true);
                         }
                     }
                 }
@@ -121,7 +121,7 @@ impl Loader {
 
         println!("Removed {} duplicated edges", edge_count - edges.len());
 
-        let mut indices = ::std::collections::VecDeque::new();
+        let mut indices = ::std::collections::BTreeSet::new();
         for i in 1..edges.len() {
             let first = &edges[i - 1];
             let second = &edges[i];
@@ -131,32 +131,42 @@ impl Loader {
             if first.length <= second.length && first.height <= second.height
                 && first.unsuitability <= second.unsuitability
             {
-                indices.push_front(i);
+                indices.insert(i);
             }
         }
         println!("removing {} dominated edges", indices.len());
-        for i in indices {
-            edges.remove(i);
-        }
+        println!("len before {}", edges.len());
+        edges = edges
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                return !indices.contains(i);
+            })
+            .map(|(_, e)| {
+                return e;
+            })
+            .collect();
 
+        println!("len after {}", edges.len());
         return (nodes, edges);
     }
 
-    fn determine_unsuitability(&self, way: &Way) -> Unsuitability {
+    fn determine_unsuitability(&self, way: &Way, bicycle_relation: bool) -> Unsuitability {
+        let factor = if bicycle_relation { 0.5 } else { 1.0 };
         let bicycle_tag = way.tags.get("bicycle");
         if way.tags.get("cycleway").is_some()
             || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
         {
-            return 0.0;
+            return 0.5 * factor;
         }
 
         let side_walk: Option<&str> = way.tags.get("sidewalk").map(String::as_ref);
         if side_walk == Some("yes") {
-            return 1.0;
+            return 1.0 * factor;
         }
 
         let street_type = way.tags.get("highway").map(String::as_ref);
-        match street_type {
+        let unsuitability = match street_type {
             Some("primary") => 5.0,
             Some("primary_link") => 5.0,
             Some("secondary") => 4.0,
@@ -175,13 +185,14 @@ impl Loader {
             Some("pedestrian") => 1.0,
             Some("path") => 1.0,
             Some("footway") => 1.0,
-            Some("cycleway") => 0.0,
+            Some("cycleway") => 0.5,
             _ => 6.0,
-        }
+        };
+        unsuitability * factor
     }
 
-    fn process_way(&self, w: &Way, edges: &mut Vec<EdgeInfo>) {
-        let unsuitability = self.determine_unsuitability(&w);
+    fn process_way(&self, w: &Way, edges: &mut Vec<EdgeInfo>, bicycle_relation: bool) {
+        let unsuitability = self.determine_unsuitability(&w, bicycle_relation);
         let is_one_way = self.is_one_way(&w);
         for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
             let edge = EdgeInfo::new(
