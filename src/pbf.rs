@@ -303,19 +303,43 @@ impl Loader {
         let mut srtm_file = String::new();
         srtm_file.push_str(self.srtm_path.as_ref());
         srtm_file.push_str(&file_name);
-        let mut f = File::open(&srtm_file).expect(&format!("srtm file {} not found", srtm_file));
+        let mut f = match File::open(&srtm_file) {
+            Ok(f) => f,
+            Err(_) => {
+                println!("could not find file: {}", file_name);
+                return 0.0;
+            }
+        };
 
-        let lat_offset = 3601 - ((lat - north as f64) / second).round() as u64;
-        let long_offset = ((lng - east as f64) / second).round() as u64;
+        let lat_offset = 3601.0 - lat.fract() / second;
+        let lng_offset = lng.fract() / second;
 
-        f.seek(SeekFrom::Start(
-            ((lat_offset - 1) * 3601 + (long_offset)) * 2,
-        )).unwrap();
+        let lat_offset_floor = lat_offset.floor() as u64;
+        let lat_offset_ceil = lat_offset.ceil() as u64;
+        let long_offset_floor = lng_offset.floor() as u64;
+        let long_offset_ceil = lng_offset.ceil() as u64;
 
-        let h = f.read_i16::<BigEndian>()
-            .expect(&format!("Reading failed at {}, {}", lat, lng));
+        let mut read_offsets = |lat_offset: u64, long_offset: u64| -> f64 {
+            f.seek(SeekFrom::Start(
+                ((lat_offset - 1) * 3601 + (long_offset)) * 2,
+            )).unwrap();
 
-        h as f64 * 10.0
+            f.read_i16::<BigEndian>()
+                .expect(&format!("Reading failed at {}, {}", lat, lng)) as f64
+        };
+
+        let h1 = read_offsets(lat_offset_floor, long_offset_floor);
+        let h2 = read_offsets(lat_offset_ceil, long_offset_floor);
+
+        let h3 = read_offsets(lat_offset_floor, long_offset_ceil);
+        let h4 = read_offsets(lat_offset_ceil, long_offset_ceil);
+
+        let h1_weight = (1.0 - lat_offset.fract()) * (1.0 - lng_offset.fract());
+        let h2_weight = lat_offset.fract() * (1.0 - lng_offset.fract());
+        let h3_weight = (1.0 - lat_offset.fract()) * lng_offset.fract();
+        let h4_weight = lat_offset.fract() * lng_offset.fract();
+
+        (h1 * h1_weight + h2 * h2_weight + h3 * h3_weight + h4 * h4_weight).round()
     }
 
     fn f64_to_whole_number(&self, x: f64) -> u64 {
