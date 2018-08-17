@@ -350,7 +350,7 @@ impl Loader {
         let h3_weight = (1.0 - lat_offset.fract()) * lng_offset.fract();
         let h4_weight = lat_offset.fract() * lng_offset.fract();
 
-        (h1 * h1_weight + h2 * h2_weight + h3 * h3_weight + h4 * h4_weight).round()
+        (h1 * h1_weight + h2 * h2_weight + h3 * h3_weight + h4 * h4_weight)
     }
 
     fn f64_to_whole_number(&self, x: f64) -> u64 {

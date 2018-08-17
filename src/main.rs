@@ -61,6 +61,7 @@ fn main() {
     write!(&mut complete_b, "# Build on: {:?}\n", SystemTime::now()).unwrap();
     write!(&mut complete_b, "\n").unwrap();
 
+    write!(&mut complete_b, "3\n").unwrap();
     write!(&mut complete_b, "{}\n", nodes.len()).unwrap();
     write!(&mut complete_b, "{}\n", edges.len()).unwrap();
 

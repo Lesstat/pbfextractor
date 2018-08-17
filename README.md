@@ -1,6 +1,6 @@
 # Pbfextractor
 
-Pbfextractor is a tool to extract graph files from OSM and SRTM data for the [cycle-routing](https://github.com/lesstat/cycle-routing) project.
+Pbfextractor is a tool to extract graph files from OSM and SRTM data for the [Cyclops](https://github.com/lesstat/cyclops) project.
 It extracts a graph for cyclists that contains data on the distance, height ascent and road suitability for bicycles.
 The data for road suitability is based on the "highway", "cycleway", "bicycle" and "sidewalk" tags from OSM and has been tested for German graphs.
 
