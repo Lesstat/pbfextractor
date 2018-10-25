@@ -41,8 +41,7 @@ impl Loader {
         let obj_map = reader
             .get_objs_and_deps(|obj| {
                 obj.tags().contains_key("highway") || obj.tags().contains("route", "bicycle")
-            })
-            .unwrap();
+            }).unwrap();
 
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -128,7 +127,8 @@ impl Loader {
             if !(first.source == second.source && first.dest == second.dest) {
                 continue;
             }
-            if first.length <= second.length && first.height <= second.height
+            if first.length <= second.length
+                && first.height <= second.height
                 && first.unsuitability <= second.unsuitability
             {
                 indices.insert(i);
@@ -141,11 +141,9 @@ impl Loader {
             .enumerate()
             .filter(|(i, _)| {
                 return !indices.contains(i);
-            })
-            .map(|(_, e)| {
+            }).map(|(_, e)| {
                 return e;
-            })
-            .collect();
+            }).collect();
 
         println!("len after {}", edges.len());
         return (nodes, edges);
@@ -309,7 +307,11 @@ impl Loader {
         let north = self.f64_to_whole_number(lat);
         let east = self.f64_to_whole_number(lng);
 
-        let file_name = format!("/N{:02}E{:03}.hgt", north, east);
+        let file_name = if east > 0 {
+            format!("/N{:02}E{:03}.hgt", north, east)
+        } else {
+            format!("/N{:02}W{:03}.hgt", north, east.abs())
+        };
 
         let mut srtm_file = String::new();
         srtm_file.push_str(self.srtm_path.as_ref());
@@ -321,9 +323,8 @@ impl Loader {
                 return 0.0;
             }
         };
-
         let lat_offset = 3601.0 - lat.fract() / second;
-        let lng_offset = lng.fract() / second;
+        let lng_offset = lng.abs().fract() / second;
 
         let lat_offset_floor = lat_offset.floor() as u64;
         let lat_offset_ceil = lat_offset.ceil() as u64;
@@ -331,9 +332,11 @@ impl Loader {
         let long_offset_ceil = lng_offset.ceil() as u64;
 
         let mut read_offsets = |lat_offset: u64, long_offset: u64| -> f64 {
-            f.seek(SeekFrom::Start(
-                ((lat_offset - 1) * 3601 + (long_offset)) * 2,
-            )).unwrap();
+            let seek_val = ((lat_offset - 1) * 3601 + (long_offset)) * 2;
+            f.seek(SeekFrom::Start(seek_val)).expect(&format!(
+                "Seeking to value failed. latoff: {}, lngoff: {}, seekval: {}",
+                lat_offset, lng_offset, seek_val,
+            ));
 
             f.read_i16::<BigEndian>()
                 .expect(&format!("Reading failed at {}, {}", lat, lng)) as f64
@@ -353,8 +356,8 @@ impl Loader {
         (h1 * h1_weight + h2 * h2_weight + h3 * h3_weight + h4 * h4_weight)
     }
 
-    fn f64_to_whole_number(&self, x: f64) -> u64 {
-        x.trunc() as u64
+    fn f64_to_whole_number(&self, x: f64) -> i64 {
+        x.trunc() as i64
     }
 }
 
@@ -412,7 +415,8 @@ impl EdgeInfo {
 
 impl PartialEq for EdgeInfo {
     fn eq(&self, rhs: &Self) -> bool {
-        let mut equality = self.source == rhs.source && self.dest == rhs.dest
+        let mut equality = self.source == rhs.source
+            && self.dest == rhs.dest
             && self.height == rhs.height
             && self.unsuitability == rhs.unsuitability;
         if equality {
