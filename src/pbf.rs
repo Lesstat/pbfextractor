@@ -18,7 +18,10 @@
 use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fs::File;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::spawn;
 
 pub struct Loader {
     pbf_path: String,
@@ -33,72 +36,81 @@ impl Loader {
         }
     }
 
+    fn collect_node_ids(
+        &self,
+        ids: Receiver<osmpbfreader::NodeId>,
+    ) -> Receiver<HashSet<osmpbfreader::NodeId>> {
+        let (send, recv) = channel();
+
+        spawn(move || {
+            let mut set = HashSet::new();
+            for id in ids {
+                set.insert(id);
+            }
+            send.send(set)
+                .expect("Cannot send node ids back to main thread");
+        });
+
+        return recv;
+    }
+
     /// Loads the graph from a pbf file.
     pub fn load_graph(&self) -> (Vec<NodeInfo>, Vec<EdgeInfo>) {
         println!("Extracting data out of: {}", self.pbf_path);
         let fs = File::open(&self.pbf_path).unwrap();
         let mut reader = OsmPbfReader::new(fs);
-        let obj_map = reader
-            .get_objs_and_deps(|obj| {
-                obj.tags().contains_key("highway") || obj.tags().contains("route", "bicycle")
-            }).unwrap();
 
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        for (_, obj) in &obj_map {
-            match obj {
-                OsmObj::Node(node) => {
-                    let lat = (node.decimicro_lat as f64) / 10_000_000.0;
-                    let lng = (node.decimicro_lon as f64) / 10_000_000.0;
-                    nodes.push(NodeInfo::new(
-                        node.id.0 as usize,
-                        lat,
-                        lng,
-                        self.srtm(lat, lng),
-                    ));
+        let (id_sender, id_receiver) = channel();
+        let set_receiver = self.collect_node_ids(id_receiver);
+
+        let mut edges: Vec<EdgeInfo> = reader
+            .par_iter()
+            .flat_map(|obj| {
+                if let Ok(OsmObj::Way(w)) = obj {
+                    self.process_way(&w, &id_sender)
+                } else {
+                    Vec::new()
                 }
-                OsmObj::Way(w) => {
-                    if self.is_not_for_bicycle(&w) {
-                        continue;
+            }).collect();
+        println!("Collected {} edges", edges.len());
+        reader.rewind().expect("Can't rewind pbf file!");
+        drop(id_sender);
+
+        let id_set = set_receiver.recv().expect("Did not get node ids");
+        let mut nodes: Vec<NodeInfo> = reader
+            .par_iter()
+            .filter_map(|obj| {
+                if let Ok(OsmObj::Node(n)) = obj {
+                    if id_set.contains(&n.id) {
+                        let lat = (n.decimicro_lat as f64) / 10_000_000.0;
+                        let lng = (n.decimicro_lon as f64) / 10_000_000.0;
+                        Some(NodeInfo::new(
+                            n.id.0 as usize,
+                            lat,
+                            lng,
+                            self.srtm(lat, lng),
+                        ))
+                    } else {
+                        None
                     }
-                    self.process_way(&w, &mut edges, false);
+                } else {
+                    None
                 }
-                OsmObj::Relation(r) => {
-                    if !r.tags.contains("route", "bicycle") {
-                        continue;
-                    }
-                    for reference in &r.refs {
-                        let thing = &obj_map.get(&reference.member);
-                        if let Some(OsmObj::Way(w)) = thing {
-                            self.process_way(&w, &mut edges, true);
-                        }
-                    }
-                }
-            }
-        }
+            }).collect();
+        println!("Collected {} nodes", nodes.len());
 
         println!("Calculating distances and height differences on edges ");
 
         self.rename_node_ids_and_calculate_distance(&mut nodes, &mut edges);
 
-        println!("Deleting duplicate edges");
-        let edge_count = edges.len();
-
+        println!("Deleting duplicate and dominated edges");
         edges.sort_by(|e1, e2| {
             let mut result = e1.source.cmp(&e2.source);
             if result == Ordering::Equal {
                 result = e1.dest.cmp(&e2.dest);
             }
             if result == Ordering::Equal {
-                let partial_result = e1.unsuitability.partial_cmp(&e2.unsuitability);
-                result = if partial_result.is_some() {
-                    partial_result.unwrap()
-                } else {
-                    Ordering::Equal
-                }
-            }
-            if result == Ordering::Equal {
-                let partial_result = e1.height.partial_cmp(&e2.height);
+                let partial_result = e1.time.partial_cmp(&e2.time);
                 result = if partial_result.is_some() {
                     partial_result.unwrap()
                 } else {
@@ -118,8 +130,6 @@ impl Loader {
 
         edges.dedup();
 
-        println!("Removed {} duplicated edges", edge_count - edges.len());
-
         let mut indices = ::std::collections::BTreeSet::new();
         for i in 1..edges.len() {
             let first = &edges[i - 1];
@@ -127,15 +137,10 @@ impl Loader {
             if !(first.source == second.source && first.dest == second.dest) {
                 continue;
             }
-            if first.length <= second.length
-                && first.height <= second.height
-                && first.unsuitability <= second.unsuitability
-            {
+            if first.length <= second.length && first.time <= second.time {
                 indices.insert(i);
             }
         }
-        println!("removing {} dominated edges", indices.len());
-        println!("len before {}", edges.len());
         edges = edges
             .into_iter()
             .enumerate()
@@ -145,10 +150,12 @@ impl Loader {
                 return e;
             }).collect();
 
-        println!("len after {}", edges.len());
+        println!("{} edges left", edges.len());
+
         return (nodes, edges);
     }
 
+    #[allow(dead_code)]
     fn determine_unsuitability(&self, way: &Way, bicycle_relation: bool) -> Unsuitability {
         let factor = if bicycle_relation { 0.5 } else { 1.0 };
         let bicycle_tag = way.tags.get("bicycle");
@@ -189,16 +196,47 @@ impl Loader {
         unsuitability * factor
     }
 
-    fn process_way(&self, w: &Way, edges: &mut Vec<EdgeInfo>, bicycle_relation: bool) {
-        let unsuitability = self.determine_unsuitability(&w, bicycle_relation);
+    fn determine_speed(&self, way: &Way) -> f64 {
+        let speed = way.tags.get("maxspeed").and_then(|s| s.parse().ok());
+        match speed {
+            Some(s) if s > 0.0 => s,
+            _ => {
+                let street_type = way.tags.get("highway").map(String::as_ref);
+                match street_type {
+                    Some("motorway") | Some("trunk") => 130.0,
+                    Some("primary") => 100.0,
+                    Some("secondary") | Some("trunk_link") => 80.0,
+                    Some("motorway_link")
+                    | Some("primary_link")
+                    | Some("secondary_link")
+                    | Some("tertiary")
+                    | Some("tertiary_link") => 70.0,
+                    Some("service") => 30.0,
+                    Some("living_street") => 5.0,
+                    _ => 50.0,
+                }
+            }
+        }
+    }
+
+    fn process_way(&self, w: &Way, id_sender: &Sender<osmpbfreader::NodeId>) -> Vec<EdgeInfo> {
+        let mut edges = Vec::new();
+        match w.tags.get("highway").map(String::as_ref) {
+            Some("footway") | Some("bridleway") | Some("steps") | Some("path")
+            | Some("cycleway") | Some("track") | Some("proposed") | Some("construction")
+            | Some("pedestrian") | None => return edges,
+            _ => (),
+        }
+        let speed = self.determine_speed(w);
         let is_one_way = self.is_one_way(&w);
         for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
+            id_sender.send(*node).expect("could not send id to id set");
             let edge = EdgeInfo::new(
                 node.0 as NodeId,
                 w.nodes[index + 1].0 as NodeId,
                 1.1, // calculating length happens inside the graph
                 0.0,
-                unsuitability,
+                speed,
             );
             edges.push(edge);
             if !is_one_way {
@@ -207,11 +245,16 @@ impl Loader {
                     node.0 as NodeId,
                     1.1, // calculating length happens inside the graph
                     0.0,
-                    unsuitability,
+                    speed,
                 );
                 edges.push(edge);
             }
         }
+
+        id_sender
+            .send(*w.nodes.last().unwrap())
+            .expect("could not send id to id set");
+        return edges;
     }
     fn is_one_way(&self, way: &Way) -> bool {
         let one_way = way.tags.get("oneway").and_then(|s| s.parse().ok());
@@ -275,12 +318,10 @@ impl Loader {
             e.source = source_id;
             e.dest = dest_id;
             e.length = self.haversine_distance(source, dest);
-            let height_difference = dest.height - source.height;
-            e.height = if height_difference > 0.0 {
-                height_difference
-            } else {
-                0.0
-            };
+            e.time = e.length * 360.0 / e.speed;
+            if !e.time.is_finite() {
+                println!("{} = {} * 360.0 / {}", e.time, e.length, e.speed);
+            }
         }
     }
 
@@ -391,34 +432,26 @@ pub struct EdgeInfo {
     pub source: NodeId,
     pub dest: NodeId,
     pub length: Length,
-    pub height: Height,
-    pub unsuitability: Unsuitability,
+    pub time: f64,
+    pub speed: f64,
 }
 
 impl EdgeInfo {
-    pub fn new(
-        source: NodeId,
-        dest: NodeId,
-        length: Length,
-        height: Height,
-        unsuitability: Unsuitability,
-    ) -> EdgeInfo {
+    pub fn new(source: NodeId, dest: NodeId, length: Length, time: f64, speed: f64) -> EdgeInfo {
         EdgeInfo {
-            source: source,
-            dest: dest,
-            length: length,
-            height: height,
-            unsuitability: unsuitability,
+            source,
+            dest,
+            length,
+            time,
+            speed,
         }
     }
 }
 
 impl PartialEq for EdgeInfo {
     fn eq(&self, rhs: &Self) -> bool {
-        let mut equality = self.source == rhs.source
-            && self.dest == rhs.dest
-            && self.height == rhs.height
-            && self.unsuitability == rhs.unsuitability;
+        let mut equality =
+            self.source == rhs.source && self.dest == rhs.dest && self.time == rhs.time;
         if equality {
             let partial_ord = self.length.partial_cmp(&rhs.length);
             equality = match partial_ord {

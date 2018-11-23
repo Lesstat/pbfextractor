@@ -61,7 +61,7 @@ fn main() {
     write!(&mut complete_b, "# Build on: {:?}\n", SystemTime::now()).unwrap();
     write!(&mut complete_b, "\n").unwrap();
 
-    write!(&mut complete_b, "3\n").unwrap();
+    write!(&mut complete_b, "2\n").unwrap();
     write!(&mut complete_b, "{}\n", nodes.len()).unwrap();
     write!(&mut complete_b, "{}\n", edges.len()).unwrap();
 
@@ -82,15 +82,11 @@ fn main() {
     }
     for edge in &edges {
         write!(&mut graph_b, "{} {}\n", edge.source, edge.dest,).unwrap();
-        write!(
-            &mut metric_b,
-            "{} {} {}\n",
-            edge.length, edge.height, edge.unsuitability
-        ).unwrap();
+        write!(&mut metric_b, "{} {}\n", edge.length, edge.time).unwrap();
         write!(
             &mut complete_b,
-            "{} {} {} {} {} -1 -1\n",
-            edge.source, edge.dest, edge.length, edge.height, edge.unsuitability
+            "{} {} {} {} -1 -1\n",
+            edge.source, edge.dest, edge.length, edge.time
         ).unwrap();
     }
 
