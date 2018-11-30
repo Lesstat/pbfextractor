@@ -21,6 +21,10 @@ extern crate osmpbfreader;
 
 mod pbf;
 
+#[allow(dead_code)]
+mod metrics;
+
+use self::metrics::*;
 use std::env::args;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -32,6 +36,14 @@ fn main() {
     let pbf_input = a.next().expect("No pbf input file given");
     let srtm_input = a.next().expect("No srtm input file given");
     let output = a.next().expect("No output file given");
+
+    let l = pbf::Loader::new(
+        pbf_input,
+        srtm_input,
+        vec![Box::new(BicycleUnsuitability)],
+        vec![Box::new(Distance), Box::new(HeightAscent)],
+        vec![],
+    );
 
     let mut complete_output = output.clone();
     complete_output.push_str(".complete");
@@ -51,8 +63,6 @@ fn main() {
     let metric_f = File::create(&metric_output).unwrap();
     let mut metric_b = BufWriter::new(metric_f);
 
-    let l = pbf::Loader::new(pbf_input, srtm_input);
-
     let (nodes, edges) = l.load_graph();
 
     println!("Writing to: {}", output);
@@ -61,7 +71,7 @@ fn main() {
     write!(&mut complete_b, "# Build on: {:?}\n", SystemTime::now()).unwrap();
     write!(&mut complete_b, "\n").unwrap();
 
-    write!(&mut complete_b, "2\n").unwrap();
+    write!(&mut complete_b, "{}\n", l.metric_count()).unwrap();
     write!(&mut complete_b, "{}\n", nodes.len()).unwrap();
     write!(&mut complete_b, "{}\n", edges.len()).unwrap();
 
@@ -73,21 +83,24 @@ fn main() {
             &mut graph_b,
             "{} {} {} {} {} 0\n",
             i, node.osm_id, node.lat, node.long, node.height,
-        ).unwrap();
+        )
+        .unwrap();
         write!(
             &mut complete_b,
             "{} {} {} {} {} 0\n",
             i, node.osm_id, node.lat, node.long, node.height,
-        ).unwrap();
+        )
+        .unwrap();
     }
     for edge in &edges {
         write!(&mut graph_b, "{} {}\n", edge.source, edge.dest,).unwrap();
-        write!(&mut metric_b, "{} {}\n", edge.length, edge.time).unwrap();
-        write!(
-            &mut complete_b,
-            "{} {} {} {} -1 -1\n",
-            edge.source, edge.dest, edge.length, edge.time
-        ).unwrap();
+        write!(&mut complete_b, "{} {} ", edge.source, edge.dest).unwrap();
+        for cost in &edge.costs {
+            write!(&mut metric_b, "{} ", cost).unwrap();
+            write!(&mut complete_b, "{} ", cost).unwrap();
+        }
+        write!(&mut metric_b, "\n").unwrap();
+        write!(&mut complete_b, "-1 -1\n").unwrap();
     }
 
     graph_b.flush().unwrap();

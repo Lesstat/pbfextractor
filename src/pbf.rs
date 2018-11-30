@@ -17,7 +17,9 @@
 */
 use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 
+use super::metrics::*;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -26,14 +28,46 @@ use std::thread::spawn;
 pub struct Loader {
     pbf_path: String,
     srtm_path: String,
+    tag_metrics: Vec<Box<dyn TagMetric>>,
+    node_metrics: Vec<Box<dyn NodeMetric>>,
+    cost_metrics: Vec<Box<dyn CostMetric>>,
+    metrics_indices: HashMap<&'static str, usize>,
 }
 
 impl Loader {
-    pub fn new(pbf_path: String, srtm_path: String) -> Loader {
-        Loader {
-            pbf_path: pbf_path,
-            srtm_path: srtm_path,
+    pub fn new(
+        pbf_path: String,
+        srtm_path: String,
+        tag_metrics: Vec<Box<dyn TagMetric>>,
+        node_metrics: Vec<Box<dyn NodeMetric>>,
+        cost_metrics: Vec<Box<dyn CostMetric>>,
+    ) -> Loader {
+        let mut metrics_indices = HashMap::new();
+        let mut index = 0;
+        for t in &tag_metrics {
+            metrics_indices.insert(t.name(), index);
+            index += 1;
         }
+        for n in &node_metrics {
+            metrics_indices.insert(n.name(), index);
+            index += 1;
+        }
+        for c in &cost_metrics {
+            metrics_indices.insert(c.name(), index);
+            index += 1;
+        }
+        Loader {
+            pbf_path,
+            srtm_path,
+            tag_metrics,
+            node_metrics,
+            cost_metrics,
+            metrics_indices,
+        }
+    }
+
+    pub fn metric_count(&self) -> usize {
+        self.node_metrics.len() + self.cost_metrics.len() + self.tag_metrics.len()
     }
 
     fn collect_node_ids(
@@ -71,7 +105,8 @@ impl Loader {
                 } else {
                     Vec::new()
                 }
-            }).collect();
+            })
+            .collect();
         println!("Collected {} edges", edges.len());
         reader.rewind().expect("Can't rewind pbf file!");
         drop(id_sender);
@@ -96,12 +131,14 @@ impl Loader {
                 } else {
                     None
                 }
-            }).collect();
+            })
+            .collect();
         println!("Collected {} nodes", nodes.len());
 
-        println!("Calculating distances and height differences on edges ");
+        println!("Calculating node_metrics");
 
-        self.rename_node_ids_and_calculate_distance(&mut nodes, &mut edges);
+        self.rename_node_ids_and_calculate_node_metrics(&mut nodes, &mut edges);
+        self.calculate_cost_metrics(&mut edges);
 
         println!("Deleting duplicate and dominated edges");
         edges.sort_by(|e1, e2| {
@@ -110,19 +147,11 @@ impl Loader {
                 result = e1.dest.cmp(&e2.dest);
             }
             if result == Ordering::Equal {
-                let partial_result = e1.time.partial_cmp(&e2.time);
-                result = if partial_result.is_some() {
-                    partial_result.unwrap()
-                } else {
-                    Ordering::Equal
-                }
-            }
-            if result == Ordering::Equal {
-                let partial_result = e1.length.partial_cmp(&e2.length);
-                result = if partial_result.is_some() {
-                    partial_result.unwrap()
-                } else {
-                    Ordering::Equal
+                for (c1, c2) in e1.costs.iter().zip(e2.costs.iter()) {
+                    result = c1.partial_cmp(c2).unwrap_or(Ordering::Equal);
+                    if result != Ordering::Equal {
+                        break;
+                    }
                 }
             }
             return result;
@@ -137,7 +166,12 @@ impl Loader {
             if !(first.source == second.source && first.dest == second.dest) {
                 continue;
             }
-            if first.length <= second.length && first.time <= second.time {
+            if first
+                .costs
+                .iter()
+                .zip(second.costs.iter())
+                .all(|(f, s)| f <= s)
+            {
                 indices.insert(i);
             }
         }
@@ -146,75 +180,23 @@ impl Loader {
             .enumerate()
             .filter(|(i, _)| {
                 return !indices.contains(i);
-            }).map(|(_, e)| {
+            })
+            .map(|(_, e)| {
                 return e;
-            }).collect();
+            })
+            .collect();
 
         println!("{} edges left", edges.len());
 
         return (nodes, edges);
     }
 
-    #[allow(dead_code)]
-    fn determine_unsuitability(&self, way: &Way, bicycle_relation: bool) -> Unsuitability {
-        let factor = if bicycle_relation { 0.5 } else { 1.0 };
-        let bicycle_tag = way.tags.get("bicycle");
-        if way.tags.get("cycleway").is_some()
-            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
-        {
-            return 0.5 * factor;
-        }
-
-        let side_walk: Option<&str> = way.tags.get("sidewalk").map(String::as_ref);
-        if side_walk == Some("yes") {
-            return 1.0 * factor;
-        }
-
-        let street_type = way.tags.get("highway").map(String::as_ref);
-        let unsuitability = match street_type {
-            Some("primary") => 5.0,
-            Some("primary_link") => 5.0,
-            Some("secondary") => 4.0,
-            Some("secondary_link") => 4.0,
-            Some("tertiary") => 3.0,
-            Some("tertiary_link") => 3.0,
-            Some("road") => 3.0,
-            Some("bridleway") => 3.0,
-            Some("unclassified") => 2.0,
-            Some("residential") => 2.0,
-            Some("traffic_island") => 2.0,
-            Some("living_street") => 1.0,
-            Some("service") => 1.0,
-            Some("track") => 1.0,
-            Some("platform") => 1.0,
-            Some("pedestrian") => 1.0,
-            Some("path") => 1.0,
-            Some("footway") => 1.0,
-            Some("cycleway") => 0.5,
-            _ => 6.0,
-        };
-        unsuitability * factor
-    }
-
-    fn determine_speed(&self, way: &Way) -> f64 {
-        let speed = way.tags.get("maxspeed").and_then(|s| s.parse().ok());
-        match speed {
-            Some(s) if s > 0.0 => s,
-            _ => {
-                let street_type = way.tags.get("highway").map(String::as_ref);
-                match street_type {
-                    Some("motorway") | Some("trunk") => 130.0,
-                    Some("primary") => 100.0,
-                    Some("secondary") | Some("trunk_link") => 80.0,
-                    Some("motorway_link")
-                    | Some("primary_link")
-                    | Some("secondary_link")
-                    | Some("tertiary")
-                    | Some("tertiary_link") => 70.0,
-                    Some("service") => 30.0,
-                    Some("living_street") => 5.0,
-                    _ => 50.0,
-                }
+    fn calculate_cost_metrics(&self, edges: &mut [EdgeInfo]) {
+        for e in edges {
+            for c in &self.cost_metrics {
+                let index = self.metrics_indices.get(c.name()).unwrap();
+                let value = c.calc(&e.costs, &self.metrics_indices).unwrap();
+                e.costs[*index] = value;
             }
         }
     }
@@ -227,26 +209,37 @@ impl Loader {
             | Some("pedestrian") | None => return edges,
             _ => (),
         }
-        let speed = self.determine_speed(w);
+        let tag_costs: Vec<(usize, f64)> = self
+            .tag_metrics
+            .iter()
+            .map(|t| {
+                (
+                    *self.metrics_indices.get(t.name()).unwrap(),
+                    t.calc(&w.tags).unwrap(),
+                )
+            })
+            .collect();
         let is_one_way = self.is_one_way(&w);
         for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
             id_sender.send(*node).expect("could not send id to id set");
-            let edge = EdgeInfo::new(
+            let mut edge = EdgeInfo::new(
                 node.0 as NodeId,
                 w.nodes[index + 1].0 as NodeId,
-                1.1, // calculating length happens inside the graph
-                0.0,
-                speed,
+                self.metric_count(),
             );
+            for (i, t) in &tag_costs {
+                edge.costs[*i] = *t;
+            }
             edges.push(edge);
             if !is_one_way {
-                let edge = EdgeInfo::new(
+                let mut edge = EdgeInfo::new(
                     w.nodes[index + 1].0 as NodeId,
                     node.0 as NodeId,
-                    1.1, // calculating length happens inside the graph
-                    0.0,
-                    speed,
+                    self.metric_count(),
                 );
+                for (i, t) in &tag_costs {
+                    edge.costs[*i] = *t;
+                }
                 edges.push(edge);
             }
         }
@@ -303,7 +296,7 @@ impl Loader {
         }
     }
 
-    fn rename_node_ids_and_calculate_distance(
+    fn rename_node_ids_and_calculate_node_metrics(
         &self,
         nodes: &mut [NodeInfo],
         edges: &mut [EdgeInfo],
@@ -317,29 +310,15 @@ impl Loader {
             let (dest_id, dest) = map[&e.dest];
             e.source = source_id;
             e.dest = dest_id;
-            e.length = self.haversine_distance(source, dest);
-            e.time = e.length * 360.0 / e.speed;
-            if !e.time.is_finite() {
-                println!("{} = {} * 360.0 / {}", e.time, e.length, e.speed);
+            for n in &self.node_metrics {
+                let index = self.metrics_indices.get(n.name()).unwrap();
+                let value = n.calc(source, dest).unwrap();
+                e.costs[*index] = value;
             }
         }
     }
 
-    /// Calculate the haversine distance. Adapted from https://github.com/georust/rust-geo
-    pub fn haversine_distance(&self, a: &NodeInfo, b: &NodeInfo) -> Length {
-        const EARTH_RADIUS: f64 = 6_371_007.2;
-
-        let theta1 = a.lat.to_radians();
-        let theta2 = b.lat.to_radians();
-        let delta_theta = (b.lat - a.lat).to_radians();
-        let delta_lambda = (b.long - a.long).to_radians();
-        let a = (delta_theta / 2.0).sin().powi(2)
-            + theta1.cos() * theta2.cos() * (delta_lambda / 2.0).sin().powi(2);
-        let c = 2.0 * a.sqrt().asin();
-        EARTH_RADIUS * c
-    }
-
-    fn srtm(&self, lat: Latitude, lng: Longitude) -> Height {
+    fn srtm(&self, lat: Latitude, lng: Longitude) -> f64 {
         use byteorder::{BigEndian, ReadBytesExt};
         use std::io::{Seek, SeekFrom};
 
@@ -406,19 +385,16 @@ pub type NodeId = usize;
 pub type OsmNodeId = usize;
 pub type Latitude = f64;
 pub type Longitude = f64;
-pub type Length = f64;
-pub type Height = f64;
-pub type Unsuitability = f64;
 
 pub struct NodeInfo {
     pub osm_id: OsmNodeId,
     pub lat: Latitude,
     pub long: Longitude,
-    pub height: Height,
+    pub height: f64,
 }
 
 impl NodeInfo {
-    pub fn new(osm_id: OsmNodeId, lat: Latitude, long: Longitude, height: Height) -> NodeInfo {
+    pub fn new(osm_id: OsmNodeId, lat: Latitude, long: Longitude, height: f64) -> NodeInfo {
         NodeInfo {
             osm_id: osm_id,
             lat: lat,
@@ -431,38 +407,25 @@ impl NodeInfo {
 pub struct EdgeInfo {
     pub source: NodeId,
     pub dest: NodeId,
-    pub length: Length,
-    pub time: f64,
-    pub speed: f64,
+    pub costs: Vec<f64>,
 }
 
 impl EdgeInfo {
-    pub fn new(source: NodeId, dest: NodeId, length: Length, time: f64, speed: f64) -> EdgeInfo {
+    pub fn new(source: NodeId, dest: NodeId, cost_count: usize) -> EdgeInfo {
+        let costs = vec![0.0; cost_count];
         EdgeInfo {
             source,
             dest,
-            length,
-            time,
-            speed,
+            costs,
         }
     }
 }
 
 impl PartialEq for EdgeInfo {
     fn eq(&self, rhs: &Self) -> bool {
-        let mut equality =
-            self.source == rhs.source && self.dest == rhs.dest && self.time == rhs.time;
-        if equality {
-            let partial_ord = self.length.partial_cmp(&rhs.length);
-            equality = match partial_ord {
-                Some(Ordering::Equal) => true,
-                Some(_) => false,
-                None => {
-                    println!("PartialOrd evals to None");
-                    true
-                }
-            }
-        }
+        let equality = self.source == rhs.source
+            && self.dest == rhs.dest
+            && self.costs.iter().zip(rhs.costs.iter()).all(|(a, b)| a == b);
 
         equality
     }
