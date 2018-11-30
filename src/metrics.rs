@@ -165,3 +165,60 @@ impl TagMetric for BicycleUnsuitability {
         Ok(unsuitability)
     }
 }
+
+pub trait EdgeFilter {
+    fn is_invalid(&self, tags: &Tags) -> bool;
+}
+
+pub struct BicycleEdgeFilter;
+impl EdgeFilter for BicycleEdgeFilter {
+    fn is_invalid(&self, tags: &Tags) -> bool {
+        let bicycle_tag = tags.get("bicycle");
+        if bicycle_tag == Some(&"no".to_string()) {
+            return true;
+        }
+        if tags.get("cycleway").is_some()
+            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
+        {
+            return false;
+        }
+
+        let street_type = tags.get("highway").map(String::as_ref);
+        let side_walk: Option<&str> = tags.get("sidewalk").map(String::as_ref);
+        let has_side_walk: bool = match side_walk {
+            Some(s) => s != "no",
+            None => false,
+        };
+        if has_side_walk {
+            return false;
+        }
+        match street_type {
+            Some("motorway")
+            | Some("motorway_link")
+            | Some("trunk")
+            | Some("trunk_link")
+            | Some("proposed")
+            | Some("steps")
+            | Some("elevator")
+            | Some("corridor")
+            | Some("raceway")
+            | Some("rest_area")
+            | Some("construction")
+            | None => true,
+            _ => false,
+        }
+    }
+}
+pub struct CarEdgeFilter;
+impl EdgeFilter for CarEdgeFilter {
+    fn is_invalid(&self, tags: &Tags) -> bool {
+        let street_type = tags.get("highway").map(String::as_ref);
+        match street_type {
+            Some("footway") | Some("bridleway") | Some("steps") | Some("path")
+            | Some("cycleway") | Some("track") | Some("proposed") | Some("construction")
+            | Some("pedestrian") | Some("rest_area") | Some("elevator") | Some("raceway")
+            | None => true,
+            _ => false,
+        }
+    }
+}

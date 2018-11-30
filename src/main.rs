@@ -40,6 +40,7 @@ fn main() {
     let l = pbf::Loader::new(
         pbf_input,
         srtm_input,
+        BicycleEdgeFilter,
         vec![Box::new(BicycleUnsuitability)],
         vec![Box::new(Distance), Box::new(HeightAscent)],
         vec![],

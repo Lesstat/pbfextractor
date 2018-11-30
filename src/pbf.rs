@@ -25,23 +25,25 @@ use std::fs::File;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::spawn;
 
-pub struct Loader {
+pub struct Loader<Filter: EdgeFilter> {
     pbf_path: String,
     srtm_path: String,
+    edge_filter: Filter,
     tag_metrics: Vec<Box<dyn TagMetric>>,
     node_metrics: Vec<Box<dyn NodeMetric>>,
     cost_metrics: Vec<Box<dyn CostMetric>>,
     metrics_indices: HashMap<&'static str, usize>,
 }
 
-impl Loader {
+impl<Filter: EdgeFilter> Loader<Filter> {
     pub fn new(
         pbf_path: String,
         srtm_path: String,
+        edge_filter: Filter,
         tag_metrics: Vec<Box<dyn TagMetric>>,
         node_metrics: Vec<Box<dyn NodeMetric>>,
         cost_metrics: Vec<Box<dyn CostMetric>>,
-    ) -> Loader {
+    ) -> Loader<Filter> {
         let mut metrics_indices = HashMap::new();
         let mut index = 0;
         for t in &tag_metrics {
@@ -59,6 +61,7 @@ impl Loader {
         Loader {
             pbf_path,
             srtm_path,
+            edge_filter,
             tag_metrics,
             node_metrics,
             cost_metrics,
@@ -203,11 +206,8 @@ impl Loader {
 
     fn process_way(&self, w: &Way, id_sender: &Sender<osmpbfreader::NodeId>) -> Vec<EdgeInfo> {
         let mut edges = Vec::new();
-        match w.tags.get("highway").map(String::as_ref) {
-            Some("footway") | Some("bridleway") | Some("steps") | Some("path")
-            | Some("cycleway") | Some("track") | Some("proposed") | Some("construction")
-            | Some("pedestrian") | None => return edges,
-            _ => (),
+        if self.edge_filter.is_invalid(&w.tags) {
+            return edges;
         }
         let tag_costs: Vec<(usize, f64)> = self
             .tag_metrics
@@ -257,42 +257,6 @@ impl Loader {
                 Some(rule) => rule,
                 None => false,
             },
-        }
-    }
-
-    fn is_not_for_bicycle(&self, way: &Way) -> bool {
-        let bicycle_tag = way.tags.get("bicycle");
-        if bicycle_tag == Some(&"no".to_string()) {
-            return true;
-        }
-        if way.tags.get("cycleway").is_some()
-            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
-        {
-            return false;
-        }
-
-        let street_type = way.tags.get("highway").map(String::as_ref);
-        let side_walk: Option<&str> = way.tags.get("sidewalk").map(String::as_ref);
-        let has_side_walk: bool = match side_walk {
-            Some(s) => s != "no",
-            None => false,
-        };
-        if has_side_walk {
-            return false;
-        }
-        match street_type {
-            Some("motorway")
-            | Some("motorway_link")
-            | Some("trunk")
-            | Some("trunk_link")
-            | Some("proposed")
-            | Some("steps")
-            | Some("elevator")
-            | Some("corridor")
-            | Some("raceway")
-            | Some("rest_area")
-            | Some("construction") => true,
-            _ => false,
         }
     }
 
