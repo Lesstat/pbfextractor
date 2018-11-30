@@ -69,28 +69,6 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         }
     }
 
-    pub fn metric_count(&self) -> usize {
-        self.node_metrics.len() + self.cost_metrics.len() + self.tag_metrics.len()
-    }
-
-    fn collect_node_ids(
-        &self,
-        ids: Receiver<osmpbfreader::NodeId>,
-    ) -> Receiver<HashSet<osmpbfreader::NodeId>> {
-        let (send, recv) = channel();
-
-        spawn(move || {
-            let mut set = HashSet::new();
-            for id in ids {
-                set.insert(id);
-            }
-            send.send(set)
-                .expect("Cannot send node ids back to main thread");
-        });
-
-        return recv;
-    }
-
     /// Loads the graph from a pbf file.
     pub fn load_graph(&self) -> (Vec<NodeInfo>, Vec<EdgeInfo>) {
         println!("Extracting data out of: {}", self.pbf_path);
@@ -144,54 +122,34 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         self.calculate_cost_metrics(&mut edges);
 
         println!("Deleting duplicate and dominated edges");
-        edges.sort_by(|e1, e2| {
-            let mut result = e1.source.cmp(&e2.source);
-            if result == Ordering::Equal {
-                result = e1.dest.cmp(&e2.dest);
-            }
-            if result == Ordering::Equal {
-                for (c1, c2) in e1.costs.iter().zip(e2.costs.iter()) {
-                    result = c1.partial_cmp(c2).unwrap_or(Ordering::Equal);
-                    if result != Ordering::Equal {
-                        break;
-                    }
-                }
-            }
-            return result;
-        });
 
-        edges.dedup();
-
-        let mut indices = ::std::collections::BTreeSet::new();
-        for i in 1..edges.len() {
-            let first = &edges[i - 1];
-            let second = &edges[i];
-            if !(first.source == second.source && first.dest == second.dest) {
-                continue;
-            }
-            if first
-                .costs
-                .iter()
-                .zip(second.costs.iter())
-                .all(|(f, s)| f <= s)
-            {
-                indices.insert(i);
-            }
-        }
-        edges = edges
-            .into_iter()
-            .enumerate()
-            .filter(|(i, _)| {
-                return !indices.contains(i);
-            })
-            .map(|(_, e)| {
-                return e;
-            })
-            .collect();
+        self.delete_duplicate_edges(&mut edges);
+        edges = self.delete_dominated_edges(edges);
 
         println!("{} edges left", edges.len());
 
         return (nodes, edges);
+    }
+    pub fn metric_count(&self) -> usize {
+        self.node_metrics.len() + self.cost_metrics.len() + self.tag_metrics.len()
+    }
+
+    fn collect_node_ids(
+        &self,
+        ids: Receiver<osmpbfreader::NodeId>,
+    ) -> Receiver<HashSet<osmpbfreader::NodeId>> {
+        let (send, recv) = channel();
+
+        spawn(move || {
+            let mut set = HashSet::new();
+            for id in ids {
+                set.insert(id);
+            }
+            send.send(set)
+                .expect("Cannot send node ids back to main thread");
+        });
+
+        return recv;
     }
 
     fn calculate_cost_metrics(&self, edges: &mut [EdgeInfo]) {
@@ -342,6 +300,54 @@ impl<Filter: EdgeFilter> Loader<Filter> {
 
     fn f64_to_whole_number(&self, x: f64) -> i64 {
         x.trunc() as i64
+    }
+
+    fn delete_duplicate_edges(&self, edges: &mut Vec<EdgeInfo>) {
+        edges.sort_by(|e1, e2| {
+            let mut result = e1.source.cmp(&e2.source);
+            if result == Ordering::Equal {
+                result = e1.dest.cmp(&e2.dest);
+            }
+            if result == Ordering::Equal {
+                for (c1, c2) in e1.costs.iter().zip(e2.costs.iter()) {
+                    result = c1.partial_cmp(c2).unwrap_or(Ordering::Equal);
+                    if result != Ordering::Equal {
+                        break;
+                    }
+                }
+            }
+            return result;
+        });
+        edges.dedup();
+    }
+
+    fn delete_dominated_edges(&self, edges: Vec<EdgeInfo>) -> Vec<EdgeInfo> {
+        let mut indices = ::std::collections::BTreeSet::new();
+        for i in 1..edges.len() {
+            let first = &edges[i - 1];
+            let second = &edges[i];
+            if !(first.source == second.source && first.dest == second.dest) {
+                continue;
+            }
+            if first
+                .costs
+                .iter()
+                .zip(second.costs.iter())
+                .all(|(f, s)| f <= s)
+            {
+                indices.insert(i);
+            }
+        }
+        edges
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                return !indices.contains(i);
+            })
+            .map(|(_, e)| {
+                return e;
+            })
+            .collect()
     }
 }
 
