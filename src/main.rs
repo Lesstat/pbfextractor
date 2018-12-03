@@ -25,6 +25,9 @@ mod pbf;
 mod metrics;
 
 use self::metrics::*;
+use self::pbf::*;
+
+use std::collections::HashSet;
 use std::env::args;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -37,13 +40,20 @@ fn main() {
     let srtm_input = a.next().expect("No srtm input file given");
     let output = a.next().expect("No output file given");
 
+    let tag_metrics: TagMetrics = vec![Box::new(CarSpeed)];
+    let node_metrics: NodeMetrics = vec![Box::new(Distance)];
+    let cost_metrics: CostMetrics = vec![Box::new(TravelTime)];
+    let mut internal_only_metrics: InternalMetrics = HashSet::new();
+    internal_only_metrics.insert(CarSpeed.name());
+
     let l = pbf::Loader::new(
         pbf_input,
         srtm_input,
-        BicycleEdgeFilter,
-        vec![Box::new(BicycleUnsuitability)],
-        vec![Box::new(Distance), Box::new(HeightAscent)],
-        vec![],
+        CarEdgeFilter,
+        tag_metrics,
+        node_metrics,
+        cost_metrics,
+        internal_only_metrics,
     );
 
     let mut complete_output = output.clone();
@@ -96,7 +106,7 @@ fn main() {
     for edge in &edges {
         write!(&mut graph_b, "{} {}\n", edge.source, edge.dest,).unwrap();
         write!(&mut complete_b, "{} {} ", edge.source, edge.dest).unwrap();
-        for cost in &edge.costs {
+        for cost in &edge.costs(&l.metrics_indices, &l.internal_metrics) {
             write!(&mut metric_b, "{} ", cost).unwrap();
             write!(&mut complete_b, "{} ", cost).unwrap();
         }

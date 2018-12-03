@@ -1,6 +1,7 @@
-use super::pbf::NodeInfo;
+use super::pbf::{MetricIndices, Node};
 use osmpbfreader::Tags;
-use std::collections::HashMap;
+
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug)]
 pub enum MetricError {
@@ -14,25 +15,44 @@ pub trait Metric {
     fn name(&self) -> &'static str;
 }
 
+macro_rules! metric {
+    ($t:ty) => {
+        impl Metric for $t {
+            fn name(&self) -> &'static str {
+                stringify!($t)
+            }
+        }
+    };
+}
+
 pub trait TagMetric: Metric {
     fn calc(&self, tags: &Tags) -> MetricResult;
 }
 
 pub trait NodeMetric: Metric {
-    fn calc(&self, source: &NodeInfo, target: &NodeInfo) -> MetricResult;
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult;
 }
 
 pub trait CostMetric: Metric {
-    fn calc(&self, costs: &[f64], map: &HashMap<&'static str, usize>) -> MetricResult;
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult;
 }
 
-pub struct CarSpeed;
-
-impl Metric for CarSpeed {
-    fn name(&self) -> &'static str {
-        "CarSpeed"
+impl PartialEq for Metric {
+    fn eq(&self, other: &Self) -> bool {
+        self.name() == other.name()
     }
 }
+impl Eq for Metric {}
+
+impl Hash for Metric {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name().hash(state);
+    }
+}
+
+#[derive(Clone)]
+pub struct CarSpeed;
+metric!(CarSpeed);
 
 impl TagMetric for CarSpeed {
     fn calc(&self, tags: &Tags) -> MetricResult {
@@ -60,14 +80,12 @@ impl TagMetric for CarSpeed {
     }
 }
 
+#[derive(Clone)]
 pub struct Distance;
-impl Metric for Distance {
-    fn name(&self) -> &'static str {
-        "distance"
-    }
-}
+metric!(Distance);
+
 impl NodeMetric for Distance {
-    fn calc(&self, source: &NodeInfo, target: &NodeInfo) -> MetricResult {
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult {
         const EARTH_RADIUS: f64 = 6_371_007.2;
         let theta1 = source.lat.to_radians();
         let theta2 = target.lat.to_radians();
@@ -80,15 +98,12 @@ impl NodeMetric for Distance {
     }
 }
 
+#[derive(Clone)]
 pub struct TravelTime;
-impl Metric for TravelTime {
-    fn name(&self) -> &'static str {
-        "TravelTime"
-    }
-}
+metric!(TravelTime);
 
 impl CostMetric for TravelTime {
-    fn calc(&self, costs: &[f64], map: &HashMap<&'static str, usize>) -> MetricResult {
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult {
         let dist_index = map.get(Distance.name()).ok_or(MetricError::UnknownMetric)?;
         let speed_index = map.get(CarSpeed.name()).ok_or(MetricError::UnknownMetric)?;
         let dist = costs[*dist_index];
@@ -102,14 +117,12 @@ impl CostMetric for TravelTime {
     }
 }
 
+#[derive(Clone)]
 pub struct HeightAscent;
-impl Metric for HeightAscent {
-    fn name(&self) -> &'static str {
-        "HeightAscent"
-    }
-}
+metric!(HeightAscent);
+
 impl NodeMetric for HeightAscent {
-    fn calc(&self, source: &NodeInfo, target: &NodeInfo) -> MetricResult {
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult {
         let height_diff = target.height - source.height;
         if height_diff > 0.0 {
             Ok(height_diff)
@@ -119,12 +132,10 @@ impl NodeMetric for HeightAscent {
     }
 }
 
+#[derive(Clone)]
 pub struct BicycleUnsuitability;
-impl Metric for BicycleUnsuitability {
-    fn name(&self) -> &'static str {
-        "BicycleUnsuitability"
-    }
-}
+metric!(BicycleUnsuitability);
+
 impl TagMetric for BicycleUnsuitability {
     fn calc(&self, tags: &Tags) -> MetricResult {
         let bicycle_tag = tags.get("bicycle");
@@ -171,6 +182,7 @@ pub trait EdgeFilter {
 }
 
 pub struct BicycleEdgeFilter;
+
 impl EdgeFilter for BicycleEdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool {
         let bicycle_tag = tags.get("bicycle");
@@ -210,6 +222,7 @@ impl EdgeFilter for BicycleEdgeFilter {
     }
 }
 pub struct CarEdgeFilter;
+
 impl EdgeFilter for CarEdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool {
         let street_type = tags.get("highway").map(String::as_ref);

@@ -25,14 +25,21 @@ use std::fs::File;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::spawn;
 
+pub type TagMetrics = Vec<Box<dyn TagMetric>>;
+pub type NodeMetrics = Vec<Box<dyn NodeMetric>>;
+pub type CostMetrics = Vec<Box<dyn CostMetric>>;
+pub type InternalMetrics = HashSet<&'static str>;
+pub type MetricIndices = HashMap<&'static str, usize>;
+
 pub struct Loader<Filter: EdgeFilter> {
     pbf_path: String,
     srtm_path: String,
     edge_filter: Filter,
-    tag_metrics: Vec<Box<dyn TagMetric>>,
-    node_metrics: Vec<Box<dyn NodeMetric>>,
-    cost_metrics: Vec<Box<dyn CostMetric>>,
-    metrics_indices: HashMap<&'static str, usize>,
+    tag_metrics: TagMetrics,
+    node_metrics: NodeMetrics,
+    cost_metrics: CostMetrics,
+    pub internal_metrics: InternalMetrics,
+    pub metrics_indices: MetricIndices,
 }
 
 impl<Filter: EdgeFilter> Loader<Filter> {
@@ -40,11 +47,12 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         pbf_path: String,
         srtm_path: String,
         edge_filter: Filter,
-        tag_metrics: Vec<Box<dyn TagMetric>>,
-        node_metrics: Vec<Box<dyn NodeMetric>>,
-        cost_metrics: Vec<Box<dyn CostMetric>>,
+        tag_metrics: TagMetrics,
+        node_metrics: NodeMetrics,
+        cost_metrics: CostMetrics,
+        internal_metrics: InternalMetrics,
     ) -> Loader<Filter> {
-        let mut metrics_indices = HashMap::new();
+        let mut metrics_indices: MetricIndices = HashMap::new();
         let mut index = 0;
         for t in &tag_metrics {
             metrics_indices.insert(t.name(), index);
@@ -65,12 +73,13 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             tag_metrics,
             node_metrics,
             cost_metrics,
+            internal_metrics,
             metrics_indices,
         }
     }
 
     /// Loads the graph from a pbf file.
-    pub fn load_graph(&self) -> (Vec<NodeInfo>, Vec<EdgeInfo>) {
+    pub fn load_graph(&self) -> (Vec<Node>, Vec<Edge>) {
         println!("Extracting data out of: {}", self.pbf_path);
         let fs = File::open(&self.pbf_path).unwrap();
         let mut reader = OsmPbfReader::new(fs);
@@ -78,7 +87,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         let (id_sender, id_receiver) = channel();
         let set_receiver = self.collect_node_ids(id_receiver);
 
-        let mut edges: Vec<EdgeInfo> = reader
+        let mut edges: Vec<Edge> = reader
             .par_iter()
             .flat_map(|obj| {
                 if let Ok(OsmObj::Way(w)) = obj {
@@ -93,19 +102,14 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         drop(id_sender);
 
         let id_set = set_receiver.recv().expect("Did not get node ids");
-        let mut nodes: Vec<NodeInfo> = reader
+        let mut nodes: Vec<Node> = reader
             .par_iter()
             .filter_map(|obj| {
                 if let Ok(OsmObj::Node(n)) = obj {
                     if id_set.contains(&n.id) {
                         let lat = (n.decimicro_lat as f64) / 10_000_000.0;
                         let lng = (n.decimicro_lon as f64) / 10_000_000.0;
-                        Some(NodeInfo::new(
-                            n.id.0 as usize,
-                            lat,
-                            lng,
-                            self.srtm(lat, lng),
-                        ))
+                        Some(Node::new(n.id.0 as usize, lat, lng, self.srtm(lat, lng)))
                     } else {
                         None
                     }
@@ -130,8 +134,11 @@ impl<Filter: EdgeFilter> Loader<Filter> {
 
         return (nodes, edges);
     }
-    pub fn metric_count(&self) -> usize {
+    fn internal_metric_count(&self) -> usize {
         self.node_metrics.len() + self.cost_metrics.len() + self.tag_metrics.len()
+    }
+    pub fn metric_count(&self) -> usize {
+        self.internal_metric_count() - self.internal_metrics.len()
     }
 
     fn collect_node_ids(
@@ -152,7 +159,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         return recv;
     }
 
-    fn calculate_cost_metrics(&self, edges: &mut [EdgeInfo]) {
+    fn calculate_cost_metrics(&self, edges: &mut [Edge]) {
         for e in edges {
             for c in &self.cost_metrics {
                 let index = self.metrics_indices.get(c.name()).unwrap();
@@ -162,7 +169,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         }
     }
 
-    fn process_way(&self, w: &Way, id_sender: &Sender<osmpbfreader::NodeId>) -> Vec<EdgeInfo> {
+    fn process_way(&self, w: &Way, id_sender: &Sender<osmpbfreader::NodeId>) -> Vec<Edge> {
         let mut edges = Vec::new();
         if self.edge_filter.is_invalid(&w.tags) {
             return edges;
@@ -180,20 +187,20 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         let is_one_way = self.is_one_way(&w);
         for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
             id_sender.send(*node).expect("could not send id to id set");
-            let mut edge = EdgeInfo::new(
+            let mut edge = Edge::new(
                 node.0 as NodeId,
                 w.nodes[index + 1].0 as NodeId,
-                self.metric_count(),
+                self.internal_metric_count(),
             );
             for (i, t) in &tag_costs {
                 edge.costs[*i] = *t;
             }
             edges.push(edge);
             if !is_one_way {
-                let mut edge = EdgeInfo::new(
+                let mut edge = Edge::new(
                     w.nodes[index + 1].0 as NodeId,
                     node.0 as NodeId,
-                    self.metric_count(),
+                    self.internal_metric_count(),
                 );
                 for (i, t) in &tag_costs {
                     edge.costs[*i] = *t;
@@ -218,14 +225,10 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         }
     }
 
-    fn rename_node_ids_and_calculate_node_metrics(
-        &self,
-        nodes: &mut [NodeInfo],
-        edges: &mut [EdgeInfo],
-    ) {
+    fn rename_node_ids_and_calculate_node_metrics(&self, nodes: &mut [Node], edges: &mut [Edge]) {
         use std::collections::hash_map::HashMap;
 
-        let map: HashMap<OsmNodeId, (usize, &NodeInfo)> =
+        let map: HashMap<OsmNodeId, (usize, &Node)> =
             nodes.iter().enumerate().map(|n| (n.1.osm_id, n)).collect();
         for e in edges.iter_mut() {
             let (source_id, source) = map[&e.source];
@@ -302,7 +305,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         x.trunc() as i64
     }
 
-    fn delete_duplicate_edges(&self, edges: &mut Vec<EdgeInfo>) {
+    fn delete_duplicate_edges(&self, edges: &mut Vec<Edge>) {
         edges.sort_by(|e1, e2| {
             let mut result = e1.source.cmp(&e2.source);
             if result == Ordering::Equal {
@@ -321,7 +324,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         edges.dedup();
     }
 
-    fn delete_dominated_edges(&self, edges: Vec<EdgeInfo>) -> Vec<EdgeInfo> {
+    fn delete_dominated_edges(&self, edges: Vec<Edge>) -> Vec<Edge> {
         let mut indices = ::std::collections::BTreeSet::new();
         for i in 1..edges.len() {
             let first = &edges[i - 1];
@@ -356,16 +359,16 @@ pub type OsmNodeId = usize;
 pub type Latitude = f64;
 pub type Longitude = f64;
 
-pub struct NodeInfo {
+pub struct Node {
     pub osm_id: OsmNodeId,
     pub lat: Latitude,
     pub long: Longitude,
     pub height: f64,
 }
 
-impl NodeInfo {
-    pub fn new(osm_id: OsmNodeId, lat: Latitude, long: Longitude, height: f64) -> NodeInfo {
-        NodeInfo {
+impl Node {
+    pub fn new(osm_id: OsmNodeId, lat: Latitude, long: Longitude, height: f64) -> Node {
+        Node {
             osm_id: osm_id,
             lat: lat,
             long: long,
@@ -374,24 +377,36 @@ impl NodeInfo {
     }
 }
 
-pub struct EdgeInfo {
+pub struct Edge {
     pub source: NodeId,
     pub dest: NodeId,
-    pub costs: Vec<f64>,
+    costs: Vec<f64>,
 }
 
-impl EdgeInfo {
-    pub fn new(source: NodeId, dest: NodeId, cost_count: usize) -> EdgeInfo {
+impl Edge {
+    pub fn new(source: NodeId, dest: NodeId, cost_count: usize) -> Edge {
         let costs = vec![0.0; cost_count];
-        EdgeInfo {
+        Edge {
             source,
             dest,
             costs,
         }
     }
+
+    pub fn costs(&self, indices: &MetricIndices, internal_only: &InternalMetrics) -> Vec<f64> {
+        let mut costs = Vec::new();
+        for (metric, index) in indices.iter() {
+            if internal_only.contains(metric) {
+                continue;
+            }
+            costs.push(self.costs[*index]);
+        }
+
+        costs
+    }
 }
 
-impl PartialEq for EdgeInfo {
+impl PartialEq for Edge {
     fn eq(&self, rhs: &Self) -> bool {
         let equality = self.source == rhs.source
             && self.dest == rhs.dest
