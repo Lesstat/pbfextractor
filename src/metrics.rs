@@ -1,8 +1,6 @@
 use super::pbf::{MetricIndices, Node};
 use osmpbfreader::Tags;
 
-use std::hash::{Hash, Hasher};
-
 #[derive(Debug)]
 pub enum MetricError {
     UnknownMetric,
@@ -37,50 +35,54 @@ pub trait CostMetric: Metric {
     fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult;
 }
 
-impl PartialEq for Metric {
-    fn eq(&self, other: &Self) -> bool {
-        self.name() == other.name()
-    }
-}
-impl Eq for Metric {}
+fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult {
+    let street_type = tags.get("highway").map(String::as_ref);
+    let tag_speed = match street_type {
+        Some("motorway") | Some("trunk") => driver_max,
+        Some("primary") => 100.0,
+        Some("secondary") | Some("trunk_link") => 80.0,
+        Some("motorway_link")
+        | Some("primary_link")
+        | Some("secondary_link")
+        | Some("tertiary")
+        | Some("tertiary_link") => 70.0,
+        Some("service") => 30.0,
+        Some("living_street") => 5.0,
+        _ => 50.0,
+    };
 
-impl Hash for Metric {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name().hash(state);
-    }
+    let max_speed = tags.get("maxspeed").and_then(|s| s.parse().ok());
+    let speed = match max_speed {
+        Some(s) if s > 0.0 && s <= driver_max => s,
+        _ => tag_speed.min(driver_max),
+    };
+    Ok(speed)
 }
 
-#[derive(Clone)]
 pub struct CarSpeed;
 metric!(CarSpeed);
-
 impl TagMetric for CarSpeed {
     fn calc(&self, tags: &Tags) -> MetricResult {
-        let max_speed = tags.get("maxspeed").and_then(|s| s.parse().ok());
-        let speed = match max_speed {
-            Some(s) if s > 0.0 => s,
-            _ => {
-                let street_type = tags.get("highway").map(String::as_ref);
-                match street_type {
-                    Some("motorway") | Some("trunk") => 130.0,
-                    Some("primary") => 100.0,
-                    Some("secondary") | Some("trunk_link") => 80.0,
-                    Some("motorway_link")
-                    | Some("primary_link")
-                    | Some("secondary_link")
-                    | Some("tertiary")
-                    | Some("tertiary_link") => 70.0,
-                    Some("service") => 30.0,
-                    Some("living_street") => 5.0,
-                    _ => 50.0,
-                }
-            }
-        };
-        Ok(speed)
+        bounded_speed(&tags, 120.0)
     }
 }
 
-#[derive(Clone)]
+pub struct TruckSpeed;
+metric!(TruckSpeed);
+impl TagMetric for TruckSpeed {
+    fn calc(&self, tags: &Tags) -> MetricResult {
+        bounded_speed(&tags, 80.0)
+    }
+}
+
+pub struct FastCarSpeed;
+metric!(FastCarSpeed);
+impl TagMetric for FastCarSpeed {
+    fn calc(&self, tags: &Tags) -> MetricResult {
+        bounded_speed(&tags, 180.0)
+    }
+}
+
 pub struct Distance;
 metric!(Distance);
 
@@ -98,7 +100,6 @@ impl NodeMetric for Distance {
     }
 }
 
-#[derive(Clone)]
 pub struct TravelTime;
 metric!(TravelTime);
 
@@ -117,7 +118,6 @@ impl CostMetric for TravelTime {
     }
 }
 
-#[derive(Clone)]
 pub struct HeightAscent;
 metric!(HeightAscent);
 
@@ -132,7 +132,6 @@ impl NodeMetric for HeightAscent {
     }
 }
 
-#[derive(Clone)]
 pub struct BicycleUnsuitability;
 metric!(BicycleUnsuitability);
 
