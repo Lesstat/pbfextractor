@@ -1,5 +1,6 @@
 use super::pbf::{MetricIndices, Node};
 use osmpbfreader::Tags;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum MetricError {
@@ -10,14 +11,14 @@ pub enum MetricError {
 pub type MetricResult = Result<f64, MetricError>;
 
 pub trait Metric {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
 }
 
 macro_rules! metric {
     ($t:ty) => {
         impl Metric for $t {
-            fn name(&self) -> &'static str {
-                stringify!($t)
+            fn name(&self) -> String {
+                stringify!($t).to_owned()
             }
         }
     };
@@ -51,7 +52,15 @@ fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult {
         _ => 50.0,
     };
 
-    let max_speed = tags.get("maxspeed").and_then(|s| s.parse().ok());
+    let max_speed_tag = tags.get("maxspeed");
+    let max_speed = match max_speed_tag.map(|s| s.as_ref()) {
+        Some("none") => Some(driver_max),
+        Some("walk") | Some("DE:walk") => Some(10.0),
+        Some("living_street") | Some("DE:living_street") => Some(10.0),
+        Some(s) => s.parse().ok(),
+        None => None,
+    };
+
     let speed = match max_speed {
         Some(s) if s > 0.0 && s <= driver_max => s,
         _ => tag_speed.min(driver_max),
@@ -59,6 +68,7 @@ fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult {
     Ok(speed)
 }
 
+#[allow(dead_code)]
 pub struct CarSpeed;
 metric!(CarSpeed);
 impl TagMetric for CarSpeed {
@@ -67,6 +77,7 @@ impl TagMetric for CarSpeed {
     }
 }
 
+#[allow(dead_code)]
 pub struct TruckSpeed;
 metric!(TruckSpeed);
 impl TagMetric for TruckSpeed {
@@ -75,6 +86,7 @@ impl TagMetric for TruckSpeed {
     }
 }
 
+#[allow(dead_code)]
 pub struct FastCarSpeed;
 metric!(FastCarSpeed);
 impl TagMetric for FastCarSpeed {
@@ -83,6 +95,7 @@ impl TagMetric for FastCarSpeed {
     }
 }
 
+#[allow(dead_code)]
 pub struct Distance;
 metric!(Distance);
 
@@ -100,13 +113,48 @@ impl NodeMetric for Distance {
     }
 }
 
-pub struct TravelTime;
-metric!(TravelTime);
+#[allow(dead_code)]
+pub struct TravelTime<D: Metric, S: Metric> {
+    distance: Rc<D>,
+    speed: Rc<S>,
+}
 
-impl CostMetric for TravelTime {
+impl<D, S> Metric for TravelTime<D, S>
+where
+    D: Metric,
+    S: Metric,
+{
+    fn name(&self) -> String {
+        format!(
+            "TravelTime: {} / {}",
+            self.distance.name(),
+            self.speed.name()
+        )
+    }
+}
+
+impl<D, S> TravelTime<D, S>
+where
+    D: Metric,
+    S: Metric,
+{
+    pub fn new(distance: Rc<D>, speed: Rc<S>) -> TravelTime<D, S> {
+        TravelTime { distance, speed }
+    }
+}
+
+impl<D, S> CostMetric for TravelTime<D, S>
+where
+    D: Metric,
+    S: Metric,
+{
     fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult {
-        let dist_index = map.get(Distance.name()).ok_or(MetricError::UnknownMetric)?;
-        let speed_index = map.get(CarSpeed.name()).ok_or(MetricError::UnknownMetric)?;
+        let dist_index = map
+            .get(&self.distance.name())
+            .ok_or(MetricError::UnknownMetric)?;
+        let speed_index = map
+            .get(&self.speed.name())
+            .ok_or(MetricError::UnknownMetric)?;
         let dist = costs[*dist_index];
         let speed = costs[*speed_index];
         let time = dist * 360.0 / speed;
@@ -118,6 +166,7 @@ impl CostMetric for TravelTime {
     }
 }
 
+#[allow(dead_code)]
 pub struct HeightAscent;
 metric!(HeightAscent);
 
@@ -132,6 +181,7 @@ impl NodeMetric for HeightAscent {
     }
 }
 
+#[allow(dead_code)]
 pub struct BicycleUnsuitability;
 metric!(BicycleUnsuitability);
 
@@ -176,6 +226,7 @@ impl TagMetric for BicycleUnsuitability {
     }
 }
 
+#[allow(dead_code)]
 pub struct EdgeCount;
 metric!(EdgeCount);
 
@@ -189,6 +240,7 @@ pub trait EdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool;
 }
 
+#[allow(dead_code)]
 pub struct BicycleEdgeFilter;
 
 impl EdgeFilter for BicycleEdgeFilter {
@@ -229,6 +281,7 @@ impl EdgeFilter for BicycleEdgeFilter {
         }
     }
 }
+#[allow(dead_code)]
 pub struct CarEdgeFilter;
 
 impl EdgeFilter for CarEdgeFilter {

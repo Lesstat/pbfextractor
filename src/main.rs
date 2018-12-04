@@ -21,16 +21,15 @@ extern crate osmpbfreader;
 
 mod pbf;
 
-#[allow(dead_code)]
 mod metrics;
 
 use self::metrics::*;
 use self::pbf::*;
 
-use std::collections::HashSet;
 use std::env::args;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::rc::Rc;
 use std::time::SystemTime;
 
 fn main() {
@@ -40,11 +39,20 @@ fn main() {
     let srtm_input = a.next().expect("No srtm input file given");
     let output = a.next().expect("No output file given");
 
-    let tag_metrics: TagMetrics = vec![Box::new(CarSpeed)];
-    let node_metrics: NodeMetrics = vec![Box::new(Distance)];
-    let cost_metrics: CostMetrics = vec![Box::new(TravelTime)];
-    let mut internal_only_metrics: InternalMetrics = HashSet::new();
-    internal_only_metrics.insert(CarSpeed.name());
+    let dist = Rc::new(Distance);
+    let car = Rc::new(CarSpeed);
+    let fast_car = Rc::new(FastCarSpeed);
+    let truck = Rc::new(TruckSpeed);
+
+    let _car_time = Rc::new(TravelTime::new(dist.clone(), car.clone()));
+    let _fast_car_time = Rc::new(TravelTime::new(dist.clone(), fast_car.clone()));
+    let _truck_time = Rc::new(TravelTime::new(dist.clone(), truck.clone()));
+
+    let internal_only_metrics: InternalMetrics = vec![].into_iter().collect();
+
+    let tag_metrics: TagMetrics = vec![car.clone()];
+    let node_metrics: NodeMetrics = vec![];
+    let cost_metrics: CostMetrics = vec![];
 
     let l = pbf::Loader::new(
         pbf_input,

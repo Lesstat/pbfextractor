@@ -22,14 +22,15 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
+use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::spawn;
 
-pub type TagMetrics = Vec<Box<dyn TagMetric>>;
-pub type NodeMetrics = Vec<Box<dyn NodeMetric>>;
-pub type CostMetrics = Vec<Box<dyn CostMetric>>;
-pub type InternalMetrics = HashSet<&'static str>;
-pub type MetricIndices = HashMap<&'static str, usize>;
+pub type TagMetrics = Vec<Rc<dyn TagMetric>>;
+pub type NodeMetrics = Vec<Rc<dyn NodeMetric>>;
+pub type CostMetrics = Vec<Rc<dyn CostMetric>>;
+pub type InternalMetrics = HashSet<String>;
+pub type MetricIndices = HashMap<String, usize>;
 
 pub struct Loader<Filter: EdgeFilter> {
     pbf_path: String,
@@ -120,7 +121,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             .collect();
         println!("Collected {} nodes", nodes.len());
 
-        println!("Calculating node_metrics");
+        println!("Calculating Metrics");
 
         self.rename_node_ids_and_calculate_node_metrics(&mut nodes, &mut edges);
         self.calculate_cost_metrics(&mut edges);
@@ -162,7 +163,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
     fn calculate_cost_metrics(&self, edges: &mut [Edge]) {
         for e in edges {
             for c in &self.cost_metrics {
-                let index = self.metrics_indices.get(c.name()).unwrap();
+                let index = self.metrics_indices.get(&c.name()).unwrap();
                 let value = c.calc(&e.costs, &self.metrics_indices).unwrap();
                 e.costs[*index] = value;
             }
@@ -179,7 +180,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             .iter()
             .map(|t| {
                 (
-                    *self.metrics_indices.get(t.name()).unwrap(),
+                    *self.metrics_indices.get(&t.name()).unwrap(),
                     t.calc(&w.tags).unwrap(),
                 )
             })
@@ -236,7 +237,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             e.source = source_id;
             e.dest = dest_id;
             for n in &self.node_metrics {
-                let index = self.metrics_indices.get(n.name()).unwrap();
+                let index = self.metrics_indices.get(&n.name()).unwrap();
                 let value = n.calc(source, dest).unwrap();
                 e.costs[*index] = value;
             }
