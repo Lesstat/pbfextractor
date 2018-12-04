@@ -177,6 +177,15 @@ impl TagMetric for BicycleUnsuitability {
     }
 }
 
+pub struct EdgeCount;
+metric!(EdgeCount);
+
+impl TagMetric for EdgeCount {
+    fn calc(&self, _: &Tags) -> MetricResult {
+        Ok(1.0)
+    }
+}
+
 pub trait EdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool;
 }
