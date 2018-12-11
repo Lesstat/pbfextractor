@@ -50,14 +50,14 @@ fn main() {
 
     let internal_only_metrics: InternalMetrics = vec![].into_iter().collect();
 
-    let tag_metrics: TagMetrics = vec![car.clone()];
-    let node_metrics: NodeMetrics = vec![];
+    let tag_metrics: TagMetrics = vec![Rc::new(BicycleUnsuitability)];
+    let node_metrics: NodeMetrics = vec![dist, Rc::new(HeightAscent)];
     let cost_metrics: CostMetrics = vec![];
 
     let l = pbf::Loader::new(
         pbf_input,
         srtm_input,
-        CarEdgeFilter,
+        BicycleEdgeFilter,
         tag_metrics,
         node_metrics,
         cost_metrics,
@@ -86,42 +86,41 @@ fn main() {
 
     println!("Writing to: {}", output);
 
-    write!(&mut complete_b, "# Build by: pbfextractor\n").unwrap();
-    write!(&mut complete_b, "# Build on: {:?}\n", SystemTime::now()).unwrap();
-    write!(&mut complete_b, "\n").unwrap();
+    writeln!(&mut complete_b, "# Build by: pbfextractor").unwrap();
+    writeln!(&mut complete_b, "# Build on: {:?}", SystemTime::now()).unwrap();
+    writeln!(&mut complete_b).unwrap();
 
-    write!(&mut complete_b, "{}\n", l.metric_count()).unwrap();
-    write!(&mut complete_b, "{}\n", nodes.len()).unwrap();
-    write!(&mut complete_b, "{}\n", edges.len()).unwrap();
+    writeln!(&mut complete_b, "{}", l.metric_count()).unwrap();
+    writeln!(&mut complete_b, "{}", nodes.len()).unwrap();
+    writeln!(&mut complete_b, "{}", edges.len()).unwrap();
 
-    write!(&mut graph_b, "{}\n", nodes.len()).unwrap();
-    write!(&mut graph_b, "{}\n", edges.len()).unwrap();
+    writeln!(&mut graph_b, "{}", nodes.len()).unwrap();
+    writeln!(&mut graph_b, "{}", edges.len()).unwrap();
 
     for (i, node) in nodes.iter().enumerate() {
-        write!(
+        writeln!(
             &mut graph_b,
-            "{} {} {} {} {} 0\n",
+            "{} {} {} {} {} 0",
             i, node.osm_id, node.lat, node.long, node.height,
         )
         .unwrap();
-        write!(
+        writeln!(
             &mut complete_b,
-            "{} {} {} {} {} 0\n",
+            "{} {} {} {} {} 0",
             i, node.osm_id, node.lat, node.long, node.height,
         )
         .unwrap();
     }
     for edge in &edges {
-        write!(&mut graph_b, "{} {}\n", edge.source, edge.dest,).unwrap();
+        writeln!(&mut graph_b, "{} {}", edge.source, edge.dest,).unwrap();
         write!(&mut complete_b, "{} {} ", edge.source, edge.dest).unwrap();
         for cost in &edge.costs(&l.metrics_indices, &l.internal_metrics) {
             write!(&mut metric_b, "{} ", cost).unwrap();
             write!(&mut complete_b, "{} ", cost).unwrap();
         }
-        write!(&mut metric_b, "\n").unwrap();
-        write!(&mut complete_b, "-1 -1\n").unwrap();
+        writeln!(&mut metric_b).unwrap();
+        writeln!(&mut complete_b, "-1 -1").unwrap();
     }
-
     graph_b.flush().unwrap();
     metric_b.flush().unwrap();
     complete_b.flush().unwrap();

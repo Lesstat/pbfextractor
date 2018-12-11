@@ -108,8 +108,8 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             .filter_map(|obj| {
                 if let Ok(OsmObj::Node(n)) = obj {
                     if id_set.contains(&n.id) {
-                        let lat = (n.decimicro_lat as f64) / 10_000_000.0;
-                        let lng = (n.decimicro_lon as f64) / 10_000_000.0;
+                        let lat = f64::from(n.decimicro_lat) / 10_000_000.0;
+                        let lng = f64::from(n.decimicro_lon) / 10_000_000.0;
                         Some(Node::new(n.id.0 as usize, lat, lng, self.srtm(lat, lng)))
                     } else {
                         None
@@ -132,8 +132,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         edges = self.delete_dominated_edges(edges);
 
         println!("{} edges left", edges.len());
-
-        return (nodes, edges);
+        (nodes, edges)
     }
     fn internal_metric_count(&self) -> usize {
         self.node_metrics.len() + self.cost_metrics.len() + self.tag_metrics.len()
@@ -156,16 +155,15 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             send.send(set)
                 .expect("Cannot send node ids back to main thread");
         });
-
-        return recv;
+        recv
     }
 
     fn calculate_cost_metrics(&self, edges: &mut [Edge]) {
         for e in edges {
             for c in &self.cost_metrics {
-                let index = self.metrics_indices.get(&c.name()).unwrap();
+                let index = self.metrics_indices[&c.name()];
                 let value = c.calc(&e.costs, &self.metrics_indices).unwrap();
-                e.costs[*index] = value;
+                e.costs[index] = value;
             }
         }
     }
@@ -175,15 +173,11 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         if self.edge_filter.is_invalid(&w.tags) {
             return edges;
         }
+
         let tag_costs: Vec<(usize, f64)> = self
             .tag_metrics
             .iter()
-            .map(|t| {
-                (
-                    *self.metrics_indices.get(&t.name()).unwrap(),
-                    t.calc(&w.tags).unwrap(),
-                )
-            })
+            .map(|t| (self.metrics_indices[&t.name()], t.calc(&w.tags).unwrap()))
             .collect();
         let is_one_way = self.is_one_way(&w);
         for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
@@ -213,7 +207,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         id_sender
             .send(*w.nodes.last().unwrap())
             .expect("could not send id to id set");
-        return edges;
+        edges
     }
     fn is_one_way(&self, way: &Way) -> bool {
         let one_way = way.tags.get("oneway").and_then(|s| s.parse().ok());
@@ -237,9 +231,9 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             e.source = source_id;
             e.dest = dest_id;
             for n in &self.node_metrics {
-                let index = self.metrics_indices.get(&n.name()).unwrap();
+                let index = self.metrics_indices[&n.name()];
                 let value = n.calc(source, dest).unwrap();
-                e.costs[*index] = value;
+                e.costs[index] = value;
             }
         }
     }
@@ -279,18 +273,21 @@ impl<Filter: EdgeFilter> Loader<Filter> {
 
         let mut read_offsets = |lat_offset: u64, long_offset: u64| -> f64 {
             let seek_val = ((lat_offset - 1) * 3601 + (long_offset)) * 2;
-            f.seek(SeekFrom::Start(seek_val)).expect(&format!(
-                "Seeking to value failed. latoff: {}, lngoff: {}, seekval: {}",
-                lat_offset, lng_offset, seek_val,
-            ));
+            f.seek(SeekFrom::Start(seek_val)).unwrap_or_else(|_| {
+                panic!(
+                    "Seeking to value failed. latoff: {}, lngoff: {}, seekval: {}",
+                    lat_offset, lng_offset, seek_val,
+                )
+            });
 
-            f.read_i16::<BigEndian>()
-                .expect(&format!("Reading failed at {}, {}", lat, lng)) as f64
+            f64::from(
+                f.read_i16::<BigEndian>()
+                    .unwrap_or_else(|_| panic!("Reading failed at {}, {}", lat, lng)),
+            )
         };
 
         let h1 = read_offsets(lat_offset_floor, long_offset_floor);
         let h2 = read_offsets(lat_offset_ceil, long_offset_floor);
-
         let h3 = read_offsets(lat_offset_floor, long_offset_ceil);
         let h4 = read_offsets(lat_offset_ceil, long_offset_ceil);
 
@@ -320,7 +317,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
                     }
                 }
             }
-            return result;
+            result
         });
         edges.dedup();
     }
@@ -345,12 +342,8 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         edges
             .into_iter()
             .enumerate()
-            .filter(|(i, _)| {
-                return !indices.contains(i);
-            })
-            .map(|(_, e)| {
-                return e;
-            })
+            .filter(|(i, _)| !indices.contains(i))
+            .map(|(_, e)| e)
             .collect()
     }
 }
@@ -370,10 +363,10 @@ pub struct Node {
 impl Node {
     pub fn new(osm_id: OsmNodeId, lat: Latitude, long: Longitude, height: f64) -> Node {
         Node {
-            osm_id: osm_id,
-            lat: lat,
-            long: long,
-            height: height,
+            osm_id,
+            lat,
+            long,
+            height,
         }
     }
 }
@@ -409,10 +402,8 @@ impl Edge {
 
 impl PartialEq for Edge {
     fn eq(&self, rhs: &Self) -> bool {
-        let equality = self.source == rhs.source
+        self.source == rhs.source
             && self.dest == rhs.dest
-            && self.costs.iter().zip(rhs.costs.iter()).all(|(a, b)| a == b);
-
-        equality
+            && self.costs.iter().zip(rhs.costs.iter()).all(|(a, b)| a == b)
     }
 }
