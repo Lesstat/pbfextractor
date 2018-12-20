@@ -107,6 +107,8 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         drop(id_sender);
 
         let id_set = set_receiver.recv().expect("Did not get node ids");
+        let srtm = self.metrics_indices.contains_key(&HeightAscent.name());
+
         let mut nodes: Vec<Node> = reader
             .par_iter()
             .filter_map(|obj| {
@@ -114,7 +116,8 @@ impl<Filter: EdgeFilter> Loader<Filter> {
                     if id_set.contains(&n.id) {
                         let lat = f64::from(n.decimicro_lat) / 10_000_000.0;
                         let lng = f64::from(n.decimicro_lon) / 10_000_000.0;
-                        Some(Node::new(n.id.0 as usize, lat, lng, self.srtm(lat, lng)))
+                        let height = if srtm { self.srtm(lat, lng) } else { 0.0 };
+                        Some(Node::new(n.id.0 as usize, lat, lng, height))
                     } else {
                         None
                     }
