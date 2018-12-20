@@ -18,6 +18,7 @@
 use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 
 use super::metrics::*;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -41,6 +42,7 @@ pub struct Loader<Filter: EdgeFilter> {
     cost_metrics: CostMetrics,
     pub internal_metrics: InternalMetrics,
     pub metrics_indices: MetricIndices,
+    grid: Rc<RefCell<Grid>>,
 }
 
 impl<Filter: EdgeFilter> Loader<Filter> {
@@ -52,6 +54,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         node_metrics: NodeMetrics,
         cost_metrics: CostMetrics,
         internal_metrics: InternalMetrics,
+        grid: Rc<RefCell<Grid>>,
     ) -> Loader<Filter> {
         let mut metrics_indices: MetricIndices = HashMap::new();
         let mut index = 0;
@@ -76,6 +79,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
             cost_metrics,
             internal_metrics,
             metrics_indices,
+            grid,
         }
     }
 
@@ -119,6 +123,9 @@ impl<Filter: EdgeFilter> Loader<Filter> {
                 }
             })
             .collect();
+        let mut grid = (*self.grid).borrow_mut();
+        nodes.iter().for_each(|n| grid.add(&n));
+
         println!("Collected {} nodes", nodes.len());
 
         println!("Calculating Metrics");

@@ -38,11 +38,16 @@ fn main() {
     let pbf_input = a.next().expect("No pbf input file given");
     let srtm_input = a.next().expect("No srtm input file given");
     let output = a.next().expect("No output file given");
+    let grid = Grid::new_ptr();
 
     let dist = Rc::new(Distance);
     let car = Rc::new(CarSpeed);
     let fast_car = Rc::new(FastCarSpeed);
     let truck = Rc::new(TruckSpeed);
+
+    let _grid_x = Rc::new(GridX(grid.clone()));
+    let _grid_y = Rc::new(GridY(grid.clone()));
+    let _chess = Rc::new(ChessBoard(grid.clone()));
 
     let _car_time = Rc::new(TravelTime::new(dist.clone(), car.clone()));
     let _fast_car_time = Rc::new(TravelTime::new(dist.clone(), fast_car.clone()));
@@ -50,8 +55,8 @@ fn main() {
 
     let internal_only_metrics: InternalMetrics = vec![].into_iter().collect();
 
-    let tag_metrics: TagMetrics = vec![Rc::new(BicycleUnsuitability)];
-    let node_metrics: NodeMetrics = vec![dist, Rc::new(HeightAscent)];
+    let tag_metrics: TagMetrics = vec![];
+    let node_metrics: NodeMetrics = vec![dist];
     let cost_metrics: CostMetrics = vec![];
 
     let l = pbf::Loader::new(
@@ -62,6 +67,7 @@ fn main() {
         node_metrics,
         cost_metrics,
         internal_only_metrics,
+        grid,
     );
 
     let mut complete_output = output.clone();

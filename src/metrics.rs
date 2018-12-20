@@ -1,5 +1,23 @@
+/*
+ Pbfextractor creates graph files for the cycle-routing projects from pbf and srtm data
+ Copyright (C) 2018  Florian Barth
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 use super::pbf::{MetricIndices, Node};
 use osmpbfreader::Tags;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -235,6 +253,85 @@ impl TagMetric for EdgeCount {
         Ok(1.0)
     }
 }
+#[derive(Debug)]
+pub struct Grid {
+    lat_min: f64,
+    lat_max: f64,
+    lng_min: f64,
+    lng_max: f64,
+    side_length: u32,
+}
+
+pub struct Coord {
+    pub x: u32,
+    pub y: u32,
+}
+
+impl Grid {
+    pub fn new_ptr() -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
+            lat_min: 90.0,
+            lat_max: -90.0,
+            lng_min: 180.0,
+            lng_max: -180.0,
+            side_length: 20,
+        }))
+    }
+    pub fn add(&mut self, n: &Node) {
+        self.lat_min = n.lat.min(self.lat_min);
+        self.lat_max = n.lat.max(self.lat_max);
+        self.lng_min = n.long.min(self.lng_min);
+        self.lng_max = n.long.max(self.lng_max);
+    }
+    pub fn index(&self, n: &Node) -> Coord {
+        let x_len = (self.lng_max - self.lng_min) / Into::<f64>::into(self.side_length);
+        let x = (n.long - self.lng_min) / x_len;
+        let y_len = (self.lat_max - self.lat_min) / Into::<f64>::into(self.side_length);
+        let y = (n.lat - self.lat_min) / y_len;
+
+        Coord {
+            x: (x.ceil() - 1.0) as u32,
+            y: (y.ceil() - 1.0) as u32,
+        }
+    }
+}
+
+pub struct GridX(pub Rc<RefCell<Grid>>);
+metric!(GridX);
+impl NodeMetric for GridX {
+    fn calc(&self, a: &Node, _: &Node) -> MetricResult {
+        if self.0.borrow().index(a).x % 2 == 0 {
+            Ok(20.0)
+        } else {
+            Ok(0.0)
+        }
+    }
+}
+
+pub struct GridY(pub Rc<RefCell<Grid>>);
+metric!(GridY);
+impl NodeMetric for GridY {
+    fn calc(&self, a: &Node, _: &Node) -> MetricResult {
+        if self.0.borrow().index(a).y % 2 == 0 {
+            Ok(20.0)
+        } else {
+            Ok(0.0)
+        }
+    }
+}
+
+pub struct ChessBoard(pub Rc<RefCell<Grid>>);
+metric!(ChessBoard);
+impl NodeMetric for ChessBoard {
+    fn calc(&self, a: &Node, _: &Node) -> MetricResult {
+        let c = self.0.borrow().index(a);
+        if c.y % 2 == 0 && c.x % 2 == 0 {
+            Ok(20.0)
+        } else {
+            Ok(0.0)
+        }
+    }
+}
 
 pub trait EdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool;
@@ -295,4 +392,46 @@ impl EdgeFilter for CarEdgeFilter {
             _ => false,
         }
     }
+}
+
+#[test]
+fn test_index() {
+    let g = Grid {
+        lng_min: 5.0,
+        lng_max: 20.0,
+        lat_min: 7.0,
+        lat_max: 30.0,
+        side_length: 20,
+    };
+
+    let c = g.index(&Node::new(1, 12.7, 7.3, 0.0));
+
+    assert_eq!(3, c.x);
+    assert_eq!(4, c.y);
+
+    let c = g.index(&Node::new(1, 7.1, 5.1, 0.0));
+
+    assert_eq!(0, c.x);
+    assert_eq!(0, c.y);
+
+    let c = g.index(&Node::new(1, 30.0, 20.00, 0.0));
+
+    assert_eq!(19, c.x);
+    assert_eq!(19, c.y);
+}
+
+#[test]
+fn index_for_negative_coords() {
+    let g = Grid {
+        lng_min: -10.0,
+        lng_max: 10.0,
+        lat_min: -20.0,
+        lat_max: 20.0,
+        side_length: 20,
+    };
+
+    let c = g.index(&Node::new(1, 5.2, -3.3, 0.0));
+
+    assert_eq!(6, c.x);
+    assert_eq!(12, c.y);
 }
