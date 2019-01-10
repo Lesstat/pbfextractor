@@ -33,9 +33,9 @@ pub type CostMetrics = Vec<Rc<dyn CostMetric>>;
 pub type InternalMetrics = HashSet<String>;
 pub type MetricIndices = HashMap<String, usize>;
 
-pub struct Loader<Filter: EdgeFilter> {
-    pbf_path: String,
-    srtm_path: String,
+pub struct Loader<'a, Filter: EdgeFilter> {
+    pbf_path: &'a str,
+    srtm_path: &'a str,
     edge_filter: Filter,
     tag_metrics: TagMetrics,
     node_metrics: NodeMetrics,
@@ -45,17 +45,17 @@ pub struct Loader<Filter: EdgeFilter> {
     grid: Rc<RefCell<Grid>>,
 }
 
-impl<Filter: EdgeFilter> Loader<Filter> {
+impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
     pub fn new(
-        pbf_path: String,
-        srtm_path: String,
+        pbf_path: &'a str,
+        srtm_path: &'a str,
         edge_filter: Filter,
         tag_metrics: TagMetrics,
         node_metrics: NodeMetrics,
         cost_metrics: CostMetrics,
         internal_metrics: InternalMetrics,
         grid: Rc<RefCell<Grid>>,
-    ) -> Loader<Filter> {
+    ) -> Loader<'a, Filter> {
         let mut metrics_indices: MetricIndices = HashMap::new();
         let mut index = 0;
         for t in &tag_metrics {
@@ -264,7 +264,7 @@ impl<Filter: EdgeFilter> Loader<Filter> {
         };
 
         let mut srtm_file = String::new();
-        srtm_file.push_str(self.srtm_path.as_ref());
+        srtm_file.push_str(self.srtm_path);
         srtm_file.push_str(&file_name);
         let mut f = match File::open(&srtm_file) {
             Ok(f) => f,

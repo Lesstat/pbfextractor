@@ -26,18 +26,31 @@ mod metrics;
 use self::metrics::*;
 use self::pbf::*;
 
-use std::env::args;
+use clap::App;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::rc::Rc;
 use std::time::SystemTime;
 
 fn main() {
-    let mut a = args();
-    a.next();
-    let pbf_input = a.next().expect("No pbf input file given");
-    let srtm_input = a.next().expect("No srtm input file given");
-    let output = a.next().expect("No output file given");
+    let matches = App::new("PBF Extractor")
+        .author("Florian Barth")
+        .about("Extracts Graphs with multidimensional costs from PBF files")
+        .args_from_usage(
+            "-z          'saves graph gzipped'
+             <PBF-FILE>   'PBF File to extract from'
+             <SRTM>       'Directory with srtm files'
+             <GRAPH>      'File to write graph to'",
+        )
+        .get_matches();
+
+    let zip = matches.is_present("z");
+
+    let pbf_input = matches
+        .value_of("PBF-FILE")
+        .expect("No PBF File to extract from");
+    let srtm_input = matches.value_of("SRTM").expect("No srtm input file given");
+    let output = matches.value_of("GRAPH").expect("No output file given");
     let grid = Grid::new_ptr();
 
     let dist = Rc::new(Distance);
@@ -70,64 +83,43 @@ fn main() {
         grid,
     );
 
-    let mut complete_output = output.clone();
-    complete_output.push_str(".complete");
+    println!("Writing to: {}", output);
+    let output_file = File::create(&output).unwrap();
 
-    let mut graph_output = output.clone();
-    graph_output.push_str(".graph");
+    let graph = BufWriter::new(output_file);
+    if zip {
+        let graph = flate2::write::GzEncoder::new(graph, flate2::Compression::Best);
+        write_graph(&l, graph);
+    } else {
+        write_graph(&l, graph);
+    }
+}
 
-    let mut metric_output = output.clone();
-    metric_output.push_str(".metric");
-
-    let complete_f = File::create(&complete_output).unwrap();
-    let mut complete_b = BufWriter::new(complete_f);
-
-    let graph_f = File::create(&graph_output).unwrap();
-    let mut graph_b = BufWriter::new(graph_f);
-
-    let metric_f = File::create(&metric_output).unwrap();
-    let mut metric_b = BufWriter::new(metric_f);
-
+fn write_graph<T: EdgeFilter, W: Write>(l: &Loader<T>, mut graph: W) {
     let (nodes, edges) = l.load_graph();
 
-    println!("Writing to: {}", output);
+    writeln!(&mut graph, "# Build by: pbfextractor").unwrap();
+    writeln!(&mut graph, "# Build on: {:?}", SystemTime::now()).unwrap();
+    writeln!(&mut graph).unwrap();
 
-    writeln!(&mut complete_b, "# Build by: pbfextractor").unwrap();
-    writeln!(&mut complete_b, "# Build on: {:?}", SystemTime::now()).unwrap();
-    writeln!(&mut complete_b).unwrap();
-
-    writeln!(&mut complete_b, "{}", l.metric_count()).unwrap();
-    writeln!(&mut complete_b, "{}", nodes.len()).unwrap();
-    writeln!(&mut complete_b, "{}", edges.len()).unwrap();
-
-    writeln!(&mut graph_b, "{}", nodes.len()).unwrap();
-    writeln!(&mut graph_b, "{}", edges.len()).unwrap();
+    writeln!(&mut graph, "{}", l.metric_count()).unwrap();
+    writeln!(&mut graph, "{}", nodes.len()).unwrap();
+    writeln!(&mut graph, "{}", edges.len()).unwrap();
 
     for (i, node) in nodes.iter().enumerate() {
         writeln!(
-            &mut graph_b,
-            "{} {} {} {} {} 0",
-            i, node.osm_id, node.lat, node.long, node.height,
-        )
-        .unwrap();
-        writeln!(
-            &mut complete_b,
+            &mut graph,
             "{} {} {} {} {} 0",
             i, node.osm_id, node.lat, node.long, node.height,
         )
         .unwrap();
     }
     for edge in &edges {
-        writeln!(&mut graph_b, "{} {}", edge.source, edge.dest,).unwrap();
-        write!(&mut complete_b, "{} {} ", edge.source, edge.dest).unwrap();
+        write!(&mut graph, "{} {} ", edge.source, edge.dest).unwrap();
         for cost in &edge.costs(&l.metrics_indices, &l.internal_metrics) {
-            write!(&mut metric_b, "{} ", cost).unwrap();
-            write!(&mut complete_b, "{} ", cost).unwrap();
+            write!(&mut graph, "{} ", cost).unwrap();
         }
-        writeln!(&mut metric_b).unwrap();
-        writeln!(&mut complete_b, "-1 -1").unwrap();
+        writeln!(&mut graph, "-1 -1").unwrap();
     }
-    graph_b.flush().unwrap();
-    metric_b.flush().unwrap();
-    complete_b.flush().unwrap();
+    graph.flush().unwrap();
 }

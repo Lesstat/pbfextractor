@@ -7,3 +7,5 @@ edition = "2018"
 [dependencies]
 osmpbfreader = "*"
 byteorder = "*"
+flate2 = "*"
+clap = "*"
