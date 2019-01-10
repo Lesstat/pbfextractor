@@ -303,7 +303,7 @@ impl NodeMetric for GridX {
         if self.0.borrow().index(a).x % 2 == 0 {
             Ok(20.0)
         } else {
-            Ok(0.0)
+            Ok(1.0)
         }
     }
 }
@@ -315,7 +315,7 @@ impl NodeMetric for GridY {
         if self.0.borrow().index(a).y % 2 == 0 {
             Ok(20.0)
         } else {
-            Ok(0.0)
+            Ok(1.0)
         }
     }
 }
@@ -328,7 +328,7 @@ impl NodeMetric for ChessBoard {
         if c.y % 2 == 0 && c.x % 2 == 0 {
             Ok(20.0)
         } else {
-            Ok(0.0)
+            Ok(1.0)
         }
     }
 }
