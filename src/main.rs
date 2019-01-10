@@ -75,7 +75,7 @@ fn main() {
     let l = pbf::Loader::new(
         pbf_input,
         srtm_input,
-        BicycleEdgeFilter,
+        CarEdgeFilter,
         tag_metrics,
         node_metrics,
         cost_metrics,

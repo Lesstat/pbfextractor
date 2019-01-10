@@ -126,8 +126,10 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
                 }
             })
             .collect();
-        let mut grid = (*self.grid).borrow_mut();
-        nodes.iter().for_each(|n| grid.add(&n));
+        {
+            let mut grid = (*self.grid).borrow_mut();
+            nodes.iter().for_each(|n| grid.add(&n));
+        }
 
         println!("Collected {} nodes", nodes.len());
 
