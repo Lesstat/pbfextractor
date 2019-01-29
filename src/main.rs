@@ -83,9 +83,7 @@ fn main() {
         grid,
     );
 
-    println!("Writing to: {}", output);
     let output_file = File::create(&output).unwrap();
-
     let graph = BufWriter::new(output_file);
     if zip {
         let graph = flate2::write::GzEncoder::new(graph, flate2::Compression::Best);
@@ -100,7 +98,14 @@ fn write_graph<T: EdgeFilter, W: Write>(l: &Loader<T>, mut graph: W) {
 
     writeln!(&mut graph, "# Build by: pbfextractor").unwrap();
     writeln!(&mut graph, "# Build on: {:?}", SystemTime::now()).unwrap();
-    writeln!(&mut graph).unwrap();
+    write!(&mut graph, "# metrics: ").unwrap();
+    for (metric, _) in l.metrics_indices.iter() {
+        if l.internal_metrics.contains(metric) {
+            continue;
+        }
+        write!(&mut graph, "{}, ", metric).unwrap();
+    }
+    write!(&mut graph, "\n\n").unwrap();
 
     writeln!(&mut graph, "{}", l.metric_count()).unwrap();
     writeln!(&mut graph, "{}", nodes.len()).unwrap();

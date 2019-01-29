@@ -20,8 +20,7 @@ use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 use super::metrics::*;
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -31,7 +30,7 @@ pub type TagMetrics = Vec<Rc<dyn TagMetric>>;
 pub type NodeMetrics = Vec<Rc<dyn NodeMetric>>;
 pub type CostMetrics = Vec<Rc<dyn CostMetric>>;
 pub type InternalMetrics = HashSet<String>;
-pub type MetricIndices = HashMap<String, usize>;
+pub type MetricIndices = BTreeMap<String, usize>;
 
 pub struct Loader<'a, Filter: EdgeFilter> {
     pbf_path: &'a str,
@@ -56,7 +55,7 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
         internal_metrics: InternalMetrics,
         grid: Rc<RefCell<Grid>>,
     ) -> Loader<'a, Filter> {
-        let mut metrics_indices: MetricIndices = HashMap::new();
+        let mut metrics_indices: MetricIndices = BTreeMap::new();
         let mut index = 0;
         for t in &tag_metrics {
             metrics_indices.insert(t.name(), index);
