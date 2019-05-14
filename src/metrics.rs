@@ -71,7 +71,7 @@ fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult {
     };
 
     let max_speed_tag = tags.get("maxspeed");
-    let max_speed = match max_speed_tag.map(|s| s.as_ref()) {
+    let max_speed = match max_speed_tag.map(String::as_ref) {
         Some("none") => Some(driver_max),
         Some("walk") | Some("DE:walk") => Some(10.0),
         Some("living_street") | Some("DE:living_street") => Some(10.0),

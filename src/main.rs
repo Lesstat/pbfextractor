@@ -99,12 +99,23 @@ fn write_graph<T: EdgeFilter, W: Write>(l: &Loader<T>, mut graph: W) {
     writeln!(&mut graph, "# Build by: pbfextractor").unwrap();
     writeln!(&mut graph, "# Build on: {:?}", SystemTime::now()).unwrap();
     write!(&mut graph, "# metrics: ").unwrap();
-    for (metric, _) in l.metrics_indices.iter() {
-        if l.internal_metrics.contains(metric) {
-            continue;
-        }
+    let mut external_metrics: Vec<(&str, usize)> = l
+        .metrics_indices
+        .iter()
+        .filter_map(|(m, i)| {
+            if !l.internal_metrics.contains(m) {
+                Some((m.as_ref(), *i))
+            } else {
+                None
+            }
+        })
+        .collect();
+    external_metrics.sort_by_key(|(_, i)| *i);
+
+    for (metric, _) in external_metrics {
         write!(&mut graph, "{}, ", metric).unwrap();
     }
+
     write!(&mut graph, "\n\n").unwrap();
 
     writeln!(&mut graph, "{}", l.metric_count()).unwrap();
