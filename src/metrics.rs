@@ -16,7 +16,10 @@
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 use super::pbf::{MetricIndices, Node};
+
 use osmpbfreader::Tags;
+use rand::prelude::random;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -330,6 +333,14 @@ impl NodeMetric for ChessBoard {
         } else {
             Ok(1.0)
         }
+    }
+}
+
+pub struct RandomWeights;
+metric!(RandomWeights);
+impl TagMetric for RandomWeights {
+    fn calc(&self, _tags: &Tags) -> MetricResult {
+        Ok(random::<f64>() * 20.0)
     }
 }
 

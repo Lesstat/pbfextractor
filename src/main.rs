@@ -66,6 +66,8 @@ fn main() {
     let _fast_car_time = Rc::new(TravelTime::new(dist.clone(), fast_car.clone()));
     let _truck_time = Rc::new(TravelTime::new(dist.clone(), truck.clone()));
 
+    let _random = Rc::new(RandomWeights);
+
     let internal_only_metrics: InternalMetrics = vec![].into_iter().collect();
 
     let tag_metrics: TagMetrics = vec![];
