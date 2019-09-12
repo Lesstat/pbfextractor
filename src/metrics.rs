@@ -203,6 +203,58 @@ impl NodeMetric for HeightAscent {
 }
 
 #[allow(dead_code)]
+pub struct UnsuitDistMetric<U, D> {
+    distance: Rc<D>,
+    unsuitability: Rc<U>,
+}
+
+impl<U, D> Metric for UnsuitDistMetric<U, D>
+where
+    D: Metric,
+    U: Metric,
+{
+    fn name(&self) -> String {
+        format!(
+            "UnsuitDistMetric: {} / {}",
+            self.distance.name(),
+            self.unsuitability.name()
+        )
+    }
+}
+
+impl<D, U> UnsuitDistMetric<U, D>
+where
+    D: Metric,
+    U: Metric,
+{
+    pub fn new(distance: Rc<D>, unsuitability: Rc<U>) -> Self {
+        UnsuitDistMetric {
+            distance,
+            unsuitability,
+        }
+    }
+}
+
+impl<D, U> CostMetric for UnsuitDistMetric<U, D>
+where
+    D: Metric,
+    U: Metric,
+{
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult {
+        let dist_index = map
+            .get(&self.distance.name())
+            .ok_or(MetricError::UnknownMetric)?;
+        let unsuitability_index = map
+            .get(&self.unsuitability.name())
+            .ok_or(MetricError::UnknownMetric)?;
+
+        let dist = costs[*dist_index];
+        let unsuitability = costs[*unsuitability_index];
+        Ok(unsuitability * dist)
+    }
+}
+
+#[allow(dead_code)]
 pub struct BicycleUnsuitability;
 metric!(BicycleUnsuitability);
 
