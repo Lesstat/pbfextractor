@@ -1,21 +1,22 @@
 /*
- Pbfextractor creates graph files for the cycle-routing projects from pbf and srtm data
- Copyright (C) 2018  Florian Barth
+Pbfextractor creates graph files for the cycle-routing projects from pbf and srtm data
+Copyright (C) 2018  Florian Barth
 
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
- You should have received a copy of the GNU General Public License
- along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 use super::pbf::{MetricIndices, Node};
+use super::units::*;
 
 use osmpbfreader::Tags;
 use rand::prelude::random;
@@ -29,7 +30,7 @@ pub enum MetricError {
     NonFiniteTime(f64, f64),
 }
 
-pub type MetricResult = Result<f64, MetricError>;
+pub type MetricResult<T> = Result<T, MetricError>;
 
 pub trait Metric {
     fn name(&self) -> String;
@@ -45,19 +46,19 @@ macro_rules! metric {
     };
 }
 
-pub trait TagMetric: Metric {
-    fn calc(&self, tags: &Tags) -> MetricResult;
+pub trait TagMetric<T>: Metric {
+    fn calc(&self, tags: &Tags) -> MetricResult<T>;
 }
 
-pub trait NodeMetric: Metric {
-    fn calc(&self, source: &Node, target: &Node) -> MetricResult;
+pub trait NodeMetric<T>: Metric {
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult<T>;
 }
 
-pub trait CostMetric: Metric {
-    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult;
+pub trait CostMetric<T>: Metric {
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult<T>;
 }
 
-fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult {
+fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult<KilometersPerHour> {
     let street_type = tags.get("highway").map(String::as_ref);
     let tag_speed = match street_type {
         Some("motorway") | Some("trunk") => driver_max,
@@ -86,14 +87,14 @@ fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult {
         Some(s) if s > 0.0 && s <= driver_max => s,
         _ => tag_speed.min(driver_max),
     };
-    Ok(speed)
+    Ok(KilometersPerHour(speed))
 }
 
 #[allow(dead_code)]
 pub struct CarSpeed;
 metric!(CarSpeed);
-impl TagMetric for CarSpeed {
-    fn calc(&self, tags: &Tags) -> MetricResult {
+impl TagMetric<KilometersPerHour> for CarSpeed {
+    fn calc(&self, tags: &Tags) -> MetricResult<KilometersPerHour> {
         bounded_speed(&tags, 120.0)
     }
 }
@@ -101,8 +102,8 @@ impl TagMetric for CarSpeed {
 #[allow(dead_code)]
 pub struct TruckSpeed;
 metric!(TruckSpeed);
-impl TagMetric for TruckSpeed {
-    fn calc(&self, tags: &Tags) -> MetricResult {
+impl TagMetric<KilometersPerHour> for TruckSpeed {
+    fn calc(&self, tags: &Tags) -> MetricResult<KilometersPerHour> {
         bounded_speed(&tags, 80.0)
     }
 }
@@ -110,8 +111,8 @@ impl TagMetric for TruckSpeed {
 #[allow(dead_code)]
 pub struct FastCarSpeed;
 metric!(FastCarSpeed);
-impl TagMetric for FastCarSpeed {
-    fn calc(&self, tags: &Tags) -> MetricResult {
+impl TagMetric<KilometersPerHour> for FastCarSpeed {
+    fn calc(&self, tags: &Tags) -> MetricResult<KilometersPerHour> {
         bounded_speed(&tags, 180.0)
     }
 }
@@ -120,9 +121,9 @@ impl TagMetric for FastCarSpeed {
 pub struct Distance;
 metric!(Distance);
 
-impl NodeMetric for Distance {
-    fn calc(&self, source: &Node, target: &Node) -> MetricResult {
-        const EARTH_RADIUS: f64 = 6_371_007.2;
+impl NodeMetric<Meters> for Distance {
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult<Meters> {
+        const EARTH_RADIUS: Meters = Meters(6_371_007.2);
         let theta1 = source.lat.to_radians();
         let theta2 = target.lat.to_radians();
         let delta_theta = (target.lat - source.lat).to_radians();
@@ -164,26 +165,55 @@ where
     }
 }
 
-impl<D, S> CostMetric for TravelTime<D, S>
+impl<D, S> CostMetric<Seconds> for TravelTime<D, S>
 where
     D: Metric,
     S: Metric,
 {
-    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult {
-        let dist_index = map
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult<Seconds> {
+        let dist_index = *map
             .get(&self.distance.name())
             .ok_or(MetricError::UnknownMetric)?;
-        let speed_index = map
+        let speed_index = *map
             .get(&self.speed.name())
             .ok_or(MetricError::UnknownMetric)?;
-        let dist = costs[*dist_index];
-        let speed = costs[*speed_index];
-        let time = dist * 360.0 / speed;
-        if time.is_finite() {
+
+        let dist = Meters(costs[dist_index]);
+        let speed = KilometersPerHour(costs[speed_index]);
+        let time = dist / MetersPerSecond::from(speed);
+
+        if time.0.is_finite() {
             Ok(time)
         } else {
-            Err(MetricError::NonFiniteTime(dist, speed))
+            Err(MetricError::NonFiniteTime(dist.0, speed.0))
         }
+    }
+}
+
+impl<T> CostMetric<f64> for T
+where
+    T: CostMetric<Seconds>,
+{
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult<f64> {
+        CostMetric::<Seconds>::calc(self, costs, map).map(|c| c.0)
+    }
+}
+
+impl<T> NodeMetric<f64> for T
+where
+    T: NodeMetric<Meters>,
+{
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult<f64> {
+        NodeMetric::<Meters>::calc(self, source, target).map(|c| c.0)
+    }
+}
+
+impl<T> TagMetric<f64> for T
+where
+    T: TagMetric<KilometersPerHour>,
+{
+    fn calc(&self, tags: &Tags) -> MetricResult<f64> {
+        TagMetric::<KilometersPerHour>::calc(self, tags).map(|c| c.0)
     }
 }
 
@@ -191,13 +221,13 @@ where
 pub struct HeightAscent;
 metric!(HeightAscent);
 
-impl NodeMetric for HeightAscent {
-    fn calc(&self, source: &Node, target: &Node) -> MetricResult {
+impl NodeMetric<Meters> for HeightAscent {
+    fn calc(&self, source: &Node, target: &Node) -> MetricResult<Meters> {
         let height_diff = target.height - source.height;
         if height_diff > 0.0 {
-            Ok(height_diff)
+            Ok(Meters(height_diff))
         } else {
-            Ok(0.0)
+            Ok(Meters(0.0))
         }
     }
 }
@@ -235,21 +265,21 @@ where
     }
 }
 
-impl<D, U> CostMetric for UnsuitDistMetric<U, D>
+impl<D, U> CostMetric<f64> for UnsuitDistMetric<U, D>
 where
     D: Metric,
     U: Metric,
 {
-    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult {
-        let dist_index = map
+    fn calc(&self, costs: &[f64], map: &MetricIndices) -> MetricResult<f64> {
+        let dist_index = *map
             .get(&self.distance.name())
             .ok_or(MetricError::UnknownMetric)?;
-        let unsuitability_index = map
+        let unsuitability_index = *map
             .get(&self.unsuitability.name())
             .ok_or(MetricError::UnknownMetric)?;
 
-        let dist = costs[*dist_index];
-        let unsuitability = costs[*unsuitability_index];
+        let dist = costs[dist_index];
+        let unsuitability = costs[unsuitability_index];
         Ok(unsuitability * dist)
     }
 }
@@ -258,8 +288,8 @@ where
 pub struct BicycleUnsuitability;
 metric!(BicycleUnsuitability);
 
-impl TagMetric for BicycleUnsuitability {
-    fn calc(&self, tags: &Tags) -> MetricResult {
+impl TagMetric<f64> for BicycleUnsuitability {
+    fn calc(&self, tags: &Tags) -> MetricResult<f64> {
         let bicycle_tag = tags.get("bicycle");
         if tags.get("cycleway").is_some()
             || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
@@ -303,8 +333,8 @@ impl TagMetric for BicycleUnsuitability {
 pub struct EdgeCount;
 metric!(EdgeCount);
 
-impl TagMetric for EdgeCount {
-    fn calc(&self, _: &Tags) -> MetricResult {
+impl TagMetric<f64> for EdgeCount {
+    fn calc(&self, _: &Tags) -> MetricResult<f64> {
         Ok(1.0)
     }
 }
@@ -353,8 +383,8 @@ impl Grid {
 
 pub struct GridX(pub Rc<RefCell<Grid>>);
 metric!(GridX);
-impl NodeMetric for GridX {
-    fn calc(&self, a: &Node, _: &Node) -> MetricResult {
+impl NodeMetric<f64> for GridX {
+    fn calc(&self, a: &Node, _: &Node) -> MetricResult<f64> {
         if self.0.borrow().index(a).x % 2 == 0 {
             Ok(20.0)
         } else {
@@ -365,8 +395,8 @@ impl NodeMetric for GridX {
 
 pub struct GridY(pub Rc<RefCell<Grid>>);
 metric!(GridY);
-impl NodeMetric for GridY {
-    fn calc(&self, a: &Node, _: &Node) -> MetricResult {
+impl NodeMetric<f64> for GridY {
+    fn calc(&self, a: &Node, _: &Node) -> MetricResult<f64> {
         if self.0.borrow().index(a).y % 2 == 0 {
             Ok(20.0)
         } else {
@@ -377,8 +407,8 @@ impl NodeMetric for GridY {
 
 pub struct ChessBoard(pub Rc<RefCell<Grid>>);
 metric!(ChessBoard);
-impl NodeMetric for ChessBoard {
-    fn calc(&self, a: &Node, _: &Node) -> MetricResult {
+impl NodeMetric<f64> for ChessBoard {
+    fn calc(&self, a: &Node, _: &Node) -> MetricResult<f64> {
         let c = self.0.borrow().index(a);
         if c.y % 2 == 0 && c.x % 2 == 0 {
             Ok(20.0)
@@ -390,8 +420,8 @@ impl NodeMetric for ChessBoard {
 
 pub struct RandomWeights;
 metric!(RandomWeights);
-impl TagMetric for RandomWeights {
-    fn calc(&self, _tags: &Tags) -> MetricResult {
+impl TagMetric<f64> for RandomWeights {
+    fn calc(&self, _tags: &Tags) -> MetricResult<f64> {
         Ok(random::<f64>() * 20.0)
     }
 }

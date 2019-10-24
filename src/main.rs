@@ -19,9 +19,9 @@
 extern crate byteorder;
 extern crate osmpbfreader;
 
-mod pbf;
-
 mod metrics;
+mod pbf;
+mod units;
 
 use self::metrics::*;
 use self::pbf::*;

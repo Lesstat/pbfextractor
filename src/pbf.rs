@@ -1,20 +1,20 @@
 /*
- Pbfextractor creates graph files for the cycle-routing projects from pbf and srtm data
- Copyright (C) 2018  Florian Barth
+Pbfextractor creates graph files for the cycle-routing projects from pbf and srtm data
+Copyright (C) 2018  Florian Barth
 
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
- You should have received a copy of the GNU General Public License
- along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 use osmpbfreader::{OsmObj, OsmPbfReader, Way};
 
 use super::metrics::*;
@@ -26,9 +26,9 @@ use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::spawn;
 
-pub type TagMetrics = Vec<Rc<dyn TagMetric>>;
-pub type NodeMetrics = Vec<Rc<dyn NodeMetric>>;
-pub type CostMetrics = Vec<Rc<dyn CostMetric>>;
+pub type TagMetrics = Vec<Rc<dyn TagMetric<f64>>>;
+pub type NodeMetrics = Vec<Rc<dyn NodeMetric<f64>>>;
+pub type CostMetrics = Vec<Rc<dyn CostMetric<f64>>>;
 pub type InternalMetrics = HashSet<String>;
 pub type MetricIndices = BTreeMap<String, usize>;
 
