@@ -62,9 +62,9 @@ fn main() {
     let _grid_y = Rc::new(GridY(grid.clone()));
     let _chess = Rc::new(ChessBoard(grid.clone()));
 
-    let _car_time = Rc::new(TravelTime::new(dist.clone(), car.clone()));
-    let _fast_car_time = Rc::new(TravelTime::new(dist.clone(), fast_car.clone()));
-    let _truck_time = Rc::new(TravelTime::new(dist.clone(), truck.clone()));
+    let _car_time = Rc::new(TravelTime::new(dist.clone(), car));
+    let _fast_car_time = Rc::new(TravelTime::new(dist.clone(), fast_car));
+    let _truck_time = Rc::new(TravelTime::new(dist.clone(), truck));
 
     let _random = Rc::new(RandomWeights);
 
