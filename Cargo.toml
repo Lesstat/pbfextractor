@@ -5,8 +5,9 @@ authors = ["Florian Barth <florianbarth@gmx.de>"]
 edition = "2018"
 
 [dependencies]
-osmpbfreader = "*"
 byteorder = "*"
-flate2 = "*"
 clap = "*"
-rand = "0.6"
+flate2 = "*"
+osmpbfreader = "*"
+rand = "*"
+smartstring = { version = "*", features = ["serde", "arbitrary"] }
