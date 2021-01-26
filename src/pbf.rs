@@ -44,6 +44,7 @@ pub struct Loader<'a, Filter: EdgeFilter> {
     grid: Rc<RefCell<Grid>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
     pub fn new(
         pbf_path: &'a str,

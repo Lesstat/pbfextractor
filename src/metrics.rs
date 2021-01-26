@@ -257,6 +257,7 @@ where
     D: Metric,
     U: Metric,
 {
+    #[allow(dead_code)]
     pub fn new(distance: Rc<D>, unsuitability: Rc<U>) -> Self {
         UnsuitDistMetric {
             distance,
@@ -454,21 +455,21 @@ impl EdgeFilter for BicycleEdgeFilter {
         if has_side_walk {
             return false;
         }
-        match street_type {
+        matches!(
+            street_type,
             Some("motorway")
-            | Some("motorway_link")
-            | Some("trunk")
-            | Some("trunk_link")
-            | Some("proposed")
-            | Some("steps")
-            | Some("elevator")
-            | Some("corridor")
-            | Some("raceway")
-            | Some("rest_area")
-            | Some("construction")
-            | None => true,
-            _ => false,
-        }
+                | Some("motorway_link")
+                | Some("trunk")
+                | Some("trunk_link")
+                | Some("proposed")
+                | Some("steps")
+                | Some("elevator")
+                | Some("corridor")
+                | Some("raceway")
+                | Some("rest_area")
+                | Some("construction")
+                | None
+        )
     }
 }
 #[allow(dead_code)]
@@ -477,13 +478,22 @@ pub struct CarEdgeFilter;
 impl EdgeFilter for CarEdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool {
         let street_type = tags.get("highway").map(String::as_ref);
-        match street_type {
-            Some("footway") | Some("bridleway") | Some("steps") | Some("path")
-            | Some("cycleway") | Some("track") | Some("proposed") | Some("construction")
-            | Some("pedestrian") | Some("rest_area") | Some("elevator") | Some("raceway")
-            | None => true,
-            _ => false,
-        }
+        matches!(
+            street_type,
+            Some("footway")
+                | Some("bridleway")
+                | Some("steps")
+                | Some("path")
+                | Some("cycleway")
+                | Some("track")
+                | Some("proposed")
+                | Some("construction")
+                | Some("pedestrian")
+                | Some("rest_area")
+                | Some("elevator")
+                | Some("raceway")
+                | None
+        )
     }
 }
 
