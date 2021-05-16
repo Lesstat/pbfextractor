@@ -20,6 +20,7 @@ use super::units::*;
 
 use osmpbfreader::Tags;
 use rand::prelude::random;
+use smartstring::{LazyCompact, SmartString};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -59,7 +60,7 @@ pub trait CostMetric<T>: Metric {
 }
 
 fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult<KilometersPerHour> {
-    let street_type = tags.get("highway").map(String::as_ref);
+    let street_type = tags.get("highway").map(smartstring::alias::String::as_ref);
     let tag_speed = match street_type {
         Some("motorway") | Some("trunk") => driver_max,
         Some("primary") => 100.0,
@@ -75,7 +76,7 @@ fn bounded_speed(tags: &Tags, driver_max: f64) -> MetricResult<KilometersPerHour
     };
 
     let max_speed_tag = tags.get("maxspeed");
-    let max_speed = match max_speed_tag.map(String::as_ref) {
+    let max_speed = match max_speed_tag.map(smartstring::alias::String::as_ref) {
         Some("none") => Some(driver_max),
         Some("walk") | Some("DE:walk") => Some(10.0),
         Some("living_street") | Some("DE:living_street") => Some(10.0),
@@ -293,17 +294,17 @@ impl TagMetric<f64> for BicycleUnsuitability {
     fn calc(&self, tags: &Tags) -> MetricResult<f64> {
         let bicycle_tag = tags.get("bicycle");
         if tags.get("cycleway").is_some()
-            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
+            || bicycle_tag.is_some() && bicycle_tag != Some(&SmartString::<LazyCompact>::from("no"))
         {
             return Ok(0.5);
         }
 
-        let side_walk: Option<&str> = tags.get("sidewalk").map(String::as_ref);
+        let side_walk: Option<&str> = tags.get("sidewalk").map(smartstring::alias::String::as_ref);
         if side_walk == Some("yes") {
             return Ok(1.0);
         }
 
-        let street_type = tags.get("highway").map(String::as_ref);
+        let street_type = tags.get("highway").map(smartstring::alias::String::as_ref);
         let unsuitability = match street_type {
             Some("primary") => 5.0,
             Some("primary_link") => 5.0,
@@ -437,17 +438,17 @@ pub struct BicycleEdgeFilter;
 impl EdgeFilter for BicycleEdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool {
         let bicycle_tag = tags.get("bicycle");
-        if bicycle_tag == Some(&"no".to_string()) {
+        if bicycle_tag == Some(&SmartString::<LazyCompact>::from("no")) {
             return true;
         }
         if tags.get("cycleway").is_some()
-            || bicycle_tag.is_some() && bicycle_tag != Some(&"no".to_string())
+            || bicycle_tag.is_some() && bicycle_tag != Some(&SmartString::<LazyCompact>::from("no"))
         {
             return false;
         }
 
-        let street_type = tags.get("highway").map(String::as_ref);
-        let side_walk: Option<&str> = tags.get("sidewalk").map(String::as_ref);
+        let street_type = tags.get("highway").map(smartstring::alias::String::as_ref);
+        let side_walk: Option<&str> = tags.get("sidewalk").map(smartstring::alias::String::as_ref);
         let has_side_walk: bool = match side_walk {
             Some(s) => s != "no",
             None => false,
@@ -477,7 +478,7 @@ pub struct CarEdgeFilter;
 
 impl EdgeFilter for CarEdgeFilter {
     fn is_invalid(&self, tags: &Tags) -> bool {
-        let street_type = tags.get("highway").map(String::as_ref);
+        let street_type = tags.get("highway").map(smartstring::alias::String::as_ref);
         matches!(
             street_type,
             Some("footway")
