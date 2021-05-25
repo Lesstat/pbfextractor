@@ -126,7 +126,7 @@ fn write_graph<T: EdgeFilter, W: Write>(l: &Loader<T>, mut graph: W) {
     for edge in &edges {
         write!(&mut graph, "{} {} ", edge.source, edge.dest).unwrap();
         for cost in &edge.costs(&l.metrics_indices, &l.internal_metrics) {
-            write!(&mut graph, "{} ", cost).unwrap();
+            write!(&mut graph, "{} ", cost.round()).unwrap();
         }
         writeln!(&mut graph, "-1 -1").unwrap();
     }
