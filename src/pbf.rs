@@ -225,10 +225,11 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
         let one_way = way.tags.get("oneway").and_then(|s| s.parse().ok());
         match one_way {
             Some(rule) => rule,
-            None => match way.tags.get("highway").map(|h| h == "motorway") {
-                Some(rule) => rule,
-                None => false,
-            },
+            None => way
+                .tags
+                .get("highway")
+                .map(|h| h == "motorway")
+                .unwrap_or(false),
         }
     }
 
