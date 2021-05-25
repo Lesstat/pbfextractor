@@ -253,7 +253,7 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
         }
     }
 
-    fn srtm(&self, lat: Latitude, lng: Longitude) -> f64 {
+    pub fn srtm(&self, lat: Latitude, lng: Longitude) -> f64 {
         use byteorder::{BigEndian, ReadBytesExt};
         use std::io::{Seek, SeekFrom};
 
@@ -265,7 +265,7 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
         let file_name = if east > 0 {
             format!("/N{:02}E{:03}.hgt", north, east)
         } else {
-            format!("/N{:02}W{:03}.hgt", north, east.abs())
+            format!("/N{:02}W{:03}.hgt", north, east.abs() + 1)
         };
 
         let mut srtm_file = String::new();
@@ -275,6 +275,9 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
             Ok(f) => f,
             Err(_) => {
                 println!("could not find file: {}", file_name);
+                println!("lat: {}, lng: {}", lat, lng);
+                println!("north: {}, east: {}", north, east);
+                std::process::exit(1);
                 return 0.0;
             }
         };
