@@ -223,14 +223,15 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
     }
     fn is_one_way(&self, way: &Way) -> bool {
         let one_way = way.tags.get("oneway");
+        let highway = way.tags.get("highway");
+        let junction = way.tags.get("junction");
         match one_way.map(smartstring::SmartString::as_ref) {
             Some("yes") | Some("true") => true,
             Some("no") | Some("false") => false,
-            _ => way
-                .tags
-                .get("highway")
-                .map(|h| h == "motorway")
-                .unwrap_or(false),
+            _ => {
+                highway.map(|h| h == "motorway").unwrap_or(false)
+                    || junction.map(|j| j == "roundabout" || j == "circular").unwrap_or(false)
+            }
         }
     }
 
