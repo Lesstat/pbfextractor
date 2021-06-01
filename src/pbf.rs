@@ -222,10 +222,11 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
         edges
     }
     fn is_one_way(&self, way: &Way) -> bool {
-        let one_way = way.tags.get("oneway").and_then(|s| s.parse().ok());
-        match one_way {
-            Some(rule) => rule,
-            None => way
+        let one_way = way.tags.get("oneway");
+        match one_way.map(smartstring::SmartString::as_ref) {
+            Some("yes") | Some("true") => true,
+            Some("no") | Some("false") => false,
+            _ => way
                 .tags
                 .get("highway")
                 .map(|h| h == "motorway")
