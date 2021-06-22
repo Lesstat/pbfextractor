@@ -230,7 +230,9 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
             Some("no") | Some("false") => false,
             _ => {
                 highway.map(|h| h == "motorway").unwrap_or(false)
-                    || junction.map(|j| j == "roundabout" || j == "circular").unwrap_or(false)
+                    || junction
+                        .map(|j| j == "roundabout" || j == "circular")
+                        .unwrap_or(false)
             }
         }
     }
@@ -278,7 +280,6 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
                 println!("lat: {}, lng: {}", lat, lng);
                 println!("north: {}, east: {}", north, east);
                 std::process::exit(1);
-                return 0.0;
             }
         };
         let lat_offset = 3601.0 - lat.fract() / second;
