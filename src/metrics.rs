@@ -493,6 +493,7 @@ impl EdgeFilter for CarEdgeFilter {
                 | Some("rest_area")
                 | Some("elevator")
                 | Some("raceway")
+                | Some("service")
                 | None
         )
     }
