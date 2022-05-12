@@ -26,25 +26,29 @@ mod units;
 use self::metrics::*;
 use self::pbf::*;
 
-use clap::App;
+use clap::Arg;
+use clap::{arg, Command};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::rc::Rc;
 use std::time::SystemTime;
 
 fn main() {
-    let matches = App::new("PBF Extractor")
+    let app = Command::new("PBF Extractor")
         .author("Florian Barth")
         .about("Extracts Graphs with multidimensional costs from PBF files")
-        .args_from_usage(
-            "-z          'saves graph gzipped'
-             <PBF-FILE>   'PBF File to extract from'
-             <SRTM>       'Directory with srtm files'
-             <GRAPH>      'File to write graph to'",
-        )
+        .args(&[
+            arg!(zipped: -z ... "saves graph gzipped"),
+            Arg::new("PBF-FILE").help("PBF File to extract from").required(true),
+            Arg::new("SRTM").help("Directory with srtm files").required(true),
+            Arg::new("GRAPH").help("File to write graph to").required(true),
+        ]);
+
+    let matches = app
         .get_matches();
 
-    let zip = matches.is_present("z");
+
+    let zip = matches.is_present("zipped");
 
     let pbf_input = matches
         .value_of("PBF-FILE")
