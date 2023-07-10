@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 byteorder = "1"
-clap = "3"
+clap = "4"
 flate2 = "1"
-osmpbfreader = "0.15"
+osmpbfreader = "0.16"
 rand = "0.8"
-smartstring = { version = "0.2", features = ["serde", "arbitrary"] }
+smartstring = { version = "1.0.1", features = ["serde", "arbitrary"] }
