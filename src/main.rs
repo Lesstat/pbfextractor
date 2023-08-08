@@ -39,22 +39,26 @@ fn main() {
         .about("Extracts Graphs with multidimensional costs from PBF files")
         .args(&[
             arg!(zipped: -z ... "saves graph gzipped"),
-            Arg::new("PBF-FILE").help("PBF File to extract from").required(true),
-            Arg::new("SRTM").help("Directory with srtm files").required(true),
-            Arg::new("GRAPH").help("File to write graph to").required(true),
+            Arg::new("PBF-FILE")
+                .help("PBF File to extract from")
+                .required(true),
+            Arg::new("SRTM")
+                .help("Directory with srtm files")
+                .required(true),
+            Arg::new("GRAPH")
+                .help("File to write graph to")
+                .required(true),
         ]);
 
-    let matches = app
-        .get_matches();
+    let matches = app.get_matches();
 
-
-    let zip = matches.is_present("zipped");
+    let zip = matches.get_flag("zipped");
 
     let pbf_input = matches
-        .value_of("PBF-FILE")
+        .get_one::<String>("PBF-FILE")
         .expect("No PBF File to extract from");
-    let srtm_input = matches.value_of("SRTM").expect("No srtm input file given");
-    let output = matches.value_of("GRAPH").expect("No output file given");
+    let srtm_input = matches.get_one::<String>("SRTM").expect("No srtm input file given");
+    let output = matches.get_one::<String>("GRAPH").expect("No output file given");
     let grid = Grid::new_ptr();
 
     let dist = Rc::new(Distance);
@@ -89,7 +93,7 @@ fn main() {
         grid,
     );
 
-    let output_file = File::create(&output).unwrap();
+    let output_file = File::create(output).unwrap();
     let graph = BufWriter::new(output_file);
     if zip {
         let graph = flate2::write::GzEncoder::new(graph, flate2::Compression::best());

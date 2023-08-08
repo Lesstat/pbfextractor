@@ -96,7 +96,7 @@ pub struct CarSpeed;
 metric!(CarSpeed);
 impl TagMetric<KilometersPerHour> for CarSpeed {
     fn calc(&self, tags: &Tags) -> MetricResult<KilometersPerHour> {
-        bounded_speed(&tags, 120.0)
+        bounded_speed(tags, 120.0)
     }
 }
 
@@ -105,7 +105,7 @@ pub struct TruckSpeed;
 metric!(TruckSpeed);
 impl TagMetric<KilometersPerHour> for TruckSpeed {
     fn calc(&self, tags: &Tags) -> MetricResult<KilometersPerHour> {
-        bounded_speed(&tags, 80.0)
+        bounded_speed(tags, 80.0)
     }
 }
 
@@ -114,7 +114,7 @@ pub struct FastCarSpeed;
 metric!(FastCarSpeed);
 impl TagMetric<KilometersPerHour> for FastCarSpeed {
     fn calc(&self, tags: &Tags) -> MetricResult<KilometersPerHour> {
-        bounded_speed(&tags, 180.0)
+        bounded_speed(tags, 180.0)
     }
 }
 

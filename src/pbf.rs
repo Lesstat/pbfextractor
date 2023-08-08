@@ -86,7 +86,7 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
     /// Loads the graph from a pbf file.
     pub fn load_graph(&self) -> (Vec<Node>, Vec<Edge>) {
         println!("Extracting data out of: {}", self.pbf_path);
-        let fs = File::open(&self.pbf_path).unwrap();
+        let fs = File::open(self.pbf_path).unwrap();
         let mut reader = OsmPbfReader::new(fs);
 
         let (id_sender, id_receiver) = channel();
@@ -128,7 +128,7 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
             .collect();
         {
             let mut grid = (*self.grid).borrow_mut();
-            nodes.iter().for_each(|n| grid.add(&n));
+            nodes.iter().for_each(|n| grid.add(n));
         }
 
         println!("Collected {} nodes", nodes.len());
@@ -191,7 +191,7 @@ impl<'a, Filter: EdgeFilter> Loader<'a, Filter> {
             .iter()
             .map(|t| (self.metrics_indices[&t.name()], t.calc(&w.tags).unwrap()))
             .collect();
-        let is_one_way = self.is_one_way(&w);
+        let is_one_way = self.is_one_way(w);
         for (index, node) in w.nodes[0..(w.nodes.len() - 1)].iter().enumerate() {
             id_sender.send(*node).expect("could not send id to id set");
             let mut edge = Edge::new(
